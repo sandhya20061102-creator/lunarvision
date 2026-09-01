@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lunarvision-backend
+    runtime: python
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: ALLOWED_ORIGINS
+        value: https://lunarvision.vercel.app,http://localhost:5173
