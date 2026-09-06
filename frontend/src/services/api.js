@@ -144,3 +144,63 @@ export const detectTemporalChanges = async (
     };
   }
 };
+
+/**
+ * Send chat query to /api/chat
+ */
+export const sendChatMessage = async (message, isOnline = true) => {
+  try {
+    const response = await apiClient.post('/api/chat', {
+      message,
+      is_online: isOnline,
+    });
+    return response.data;
+  } catch (error) {
+    return {
+      answer: "Unable to reach LunarVision backend server. Utilizing local offline knowledge base.",
+      mode: "offline",
+      source: "Client Fallback",
+      citations: [],
+      confidence: 0.5,
+      timestamp: new Date().toISOString(),
+      suggested_questions: ["What is LunarVision?", "What is RANSAC?", "Explain OHRC, TMC and IIRS"]
+    };
+  }
+};
+
+/**
+ * Check chat engine health / status
+ */
+export const getChatStatus = async () => {
+  try {
+    const response = await apiClient.get('/api/chat/status');
+    return response.data;
+  } catch (error) {
+    return { status: 'offline', last_sync: null };
+  }
+};
+
+/**
+ * Sync latest knowledge
+ */
+export const syncChatKnowledge = async () => {
+  try {
+    const response = await apiClient.get('/api/chat/sync');
+    return response.data;
+  } catch (error) {
+    return { sync_status: 'failed' };
+  }
+};
+
+/**
+ * Download full knowledge base JSON payload for offline caching
+ */
+export const getOfflineKnowledge = async () => {
+  try {
+    const response = await apiClient.get('/api/chat/knowledge');
+    return response.data;
+  } catch (error) {
+    return null;
+  }
+};
+

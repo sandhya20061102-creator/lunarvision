@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routers.image_routes import router as image_router
+from routers.chat_routes import router as chat_router
 
 # Initialize application directories
 BASE_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,8 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 
 # Include Routers
 app.include_router(image_router, prefix="/api/images", tags=["Images"])
+app.include_router(chat_router, prefix="/api/chat", tags=["Chatbot"])
+
 
 
 @app.get("/")

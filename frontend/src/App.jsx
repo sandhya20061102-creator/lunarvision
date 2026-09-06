@@ -8,6 +8,7 @@ import ThreeSensorPage from './pages/ThreeSensorPage';
 import ChangeDetectionPage from './pages/ChangeDetectionPage';
 import ResultsPage from './pages/ResultsPage';
 import HowItWorksPage from './pages/HowItWorksPage';
+import Chatbot from './components/Chatbot';
 
 function MainAppLayout() {
   const { activeTab } = usePipeline();
@@ -60,6 +61,9 @@ function MainAppLayout() {
           FastAPI + OpenCV + scikit-image + React 18
         </div>
       </footer>
+
+      {/* Offline-First AI Chatbot Widget */}
+      <Chatbot />
     </div>
   );
 }

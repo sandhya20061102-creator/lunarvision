@@ -1,0 +1,187 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-09-06T14:18:00Z",
+  "project": {
+    "name": "LunarVision",
+    "description": "LunarVision is an automated planetary surface registration, image correspondence, and temporal change detection system designed for lunar orbital imagery (such as ISRO Chandrayaan-2 / Chandrayaan-3 OHRC, TMC, and IIRS data).",
+    "problem_statement": "Lunar orbital imagery acquired at different orbital passes, illumination angles, or timelines often exhibits spatial misalignments, rotational offsets, and illumination variations. LunarVision solves this by providing sub-pixel surface registration and feature-based temporal change detection without requiring manual landmark annotation.",
+    "supported_sensors": [
+      {
+        "name": "OHRC",
+        "full_name": "Orbiter High Resolution Camera",
+        "resolution": "0.25 meters/pixel (spatial resolution)",
+        "mission": "Chandrayaan-2 / Chandrayaan-3",
+        "role": "Provides ultra-high resolution panchromatic surface images of candidate lunar landing sites and hazard maps."
+      },
+      {
+        "name": "TMC",
+        "full_name": "Terrain Mapping Camera (TMC-2)",
+        "resolution": "5.0 meters/pixel (3D stereo mapping)",
+        "mission": "Chandrayaan-2 / Chandrayaan-3",
+        "role": "Generates digital elevation models (DEM) and 3D surface topographic mapping of the lunar surface."
+      },
+      {
+        "name": "IIRS",
+        "full_name": "Imaging InfraRed Spectrometer",
+        "resolution": "0.8 to 5.0 micrometers (hyperspectral)",
+        "mission": "Chandrayaan-2",
+        "role": "Maps mineralogical composition, hydroxyl (OH) absorption, and water-ice signatures in lunar polar regions."
+      }
+    ],
+    "supported_file_formats": ["JPEG (.jpg, .jpeg)", "PNG (.png)", "Scientific PDS3 / PDS4 Binary Data (.img, .IMG)"]
+  },
+  "pipeline_steps": [
+    {
+      "step": 1,
+      "name": "Image Preprocessing",
+      "description": "Loads raw 8-bit or 16-bit uint16 lunar imagery (including PDS .IMG binary headers). Applies grayscale conversion, 16-bit to 8-bit dynamic range scaling (using min-max normalization), and CLAHE (Contrast Limited Adaptive Histogram Equalization) to amplify faint lunar topography and shadow features under extreme solar incidence angles."
+    },
+    {
+      "step": 2,
+      "name": "Feature Detection & Extraction",
+      "description": "Detects distinct, scale-invariant surface keypoints (craters, boulders, rilles) and computes descriptor vectors. Supports SIFT (Scale-Invariant Feature Transform, 128-dimensional float32 descriptors) and AKAZE (Accelerated KAZE, 61-byte uint8 binary descriptors for non-linear scale space filtering)."
+    },
+    {
+      "step": 3,
+      "name": "Feature Matching & Lowe's Ratio Test",
+      "description": "Matches keypoint descriptors between source and reference images using brute-force matcher (BFMatcher with L2 norm for SIFT, Hamming norm for AKAZE). Applies Lowe's Ratio Test (k=2 nearest neighbors, distance ratio threshold d1/d2 < 0.75-0.80) to discard ambiguous descriptor matches."
+    },
+    {
+      "step": 4,
+      "name": "RANSAC Outlier Rejection & Alignment",
+      "description": "Applies RANSAC (Random Sample Consensus) with reprojection threshold of 3.0 to 5.0 pixels to estimate the optimal homography or affine transformation matrix. Rejects false matches caused by repetitive crater patterns and computes inlier consensus."
+    },
+    {
+      "step": 5,
+      "name": "Warping & Image Registration",
+      "description": "Warps the source image into the reference image's spatial coordinate space using the estimated homography matrix. Generates side-by-side matches visualization, inliers overlay, and checkerboard / alpha-blended composite images for visual inspection."
+    },
+    {
+      "step": 6,
+      "name": "Temporal Change Detection",
+      "description": "Aligns pre-event and post-event images, computes SSIM (Structural Similarity Index) map and absolute intensity difference. Uses Otsu adaptive thresholding and morphological opening/closing to isolate genuine surface changes (new impact craters, boulder falls, rover tracks) from illumination shifts."
+    }
+  ],
+  "metrics": [
+    {
+      "metric": "Keypoints",
+      "formula": "N_keypoints = count(detected keypoints)",
+      "explanation": "Total number of distinctive surface points detected by SIFT or AKAZE in the image."
+    },
+    {
+      "metric": "Good Matches",
+      "formula": "Matches passing Lowe's Ratio Test (d1 / d2 < ratio_thresh)",
+      "explanation": "Subset of initial feature matches that passed nearest-neighbor distance ratio filtering."
+    },
+    {
+      "metric": "Inliers",
+      "formula": "N_inliers = count(matches satisfying || p_ref - H * p_src || < ransac_reproj_threshold)",
+      "explanation": "Number of geometrically consistent point correspondences agreed upon by the RANSAC homography model."
+    },
+    {
+      "metric": "Inlier Ratio",
+      "formula": "Inlier Ratio (%) = (N_inliers / N_good_matches) * 100",
+      "explanation": "Percentage of good matches that fit the geometric transformation model. Values > 60% indicate high alignment precision."
+    },
+    {
+      "metric": "RMSE (Root Mean Square Error)",
+      "formula": "RMSE = sqrt( (1 / N) * sum( || p_ref_i - H * p_src_i ||^2 ) ) [in pixels]",
+      "explanation": "Reprojection error measuring sub-pixel mapping accuracy. Values < 3.0 pixels indicate high-precision registration."
+    },
+    {
+      "metric": "SSIM (Structural Similarity Index)",
+      "formula": "SSIM(x,y) = [ (2*mu_x*mu_y + C1)*(2*sigma_xy + C2) ] / [ (mu_x^2 + mu_y^2 + C1)*(sigma_x^2 + sigma_y^2 + C2) ]",
+      "explanation": "Measures structural visual similarity between aligned images from -1 to +1. High SSIM (> 0.85) indicates identical surface structure."
+    },
+    {
+      "metric": "Registration Confidence Score",
+      "formula": "Confidence = 0.40 * min(1.0, N_inliers / 30) + 0.35 * inlier_ratio + 0.25 * max(0.0, 1.0 - RMSE / 60.0)",
+      "explanation": "Composite weighted score (0.0 to 1.0) assessing overall match reliability. Scores >= 0.20 indicate valid Same-Location match."
+    }
+  ],
+  "decision_rules": [
+    {
+      "decision": "Same Location",
+      "condition": "Confidence Score >= 0.20 AND Inliers >= 4",
+      "meaning": "The images cover the same geographical lunar terrain, and a valid spatial registration matrix was successfully computed."
+    },
+    {
+      "decision": "No Reliable Match",
+      "condition": "Confidence Score < 0.20 OR Inliers < 4",
+      "meaning": "Insufficient geometric feature overlap found between images. The images likely represent different lunar regions or extreme perspective/resolution mismatch."
+    }
+  ],
+  "faqs": [
+    {
+      "question": "How does LunarVision work?",
+      "answer": "LunarVision processes two lunar surface images through a 6-stage computer vision pipeline: Preprocessing (CLAHE), Feature Detection (SIFT/AKAZE), Feature Matching (Lowe's Ratio Test), RANSAC Outlier Rejection, Image Registration (Homography Warping), and Temporal Change Detection (SSIM + AbsDiff)."
+    },
+    {
+      "question": "What is RANSAC?",
+      "answer": "RANSAC (Random Sample Consensus) is an iterative geometric algorithm that estimates the homography transformation matrix while filtering out false matches (outliers) caused by repetitive crater patterns or illumination variations."
+    },
+    {
+      "question": "What is Lowe's ratio test?",
+      "answer": "Lowe's Ratio Test compares the distance of the nearest descriptor match (d1) to the second nearest match (d2). If d1/d2 < threshold (typically 0.75-0.80), the match is retained as unambiguous; otherwise, it is discarded."
+    },
+    {
+      "question": "What is OHRC?",
+      "answer": "OHRC (Orbiter High Resolution Camera) is a high-precision camera on ISRO's Chandrayaan-2/3 orbiters. It provides 0.25 m/pixel spatial resolution imagery for lunar surface hazard mapping and landing site selection."
+    },
+    {
+      "question": "What is TMC?",
+      "answer": "TMC (Terrain Mapping Camera) is a 3D stereo mapping camera on ISRO Chandrayaan orbiters with 5m spatial resolution, used to generate lunar digital elevation models (DEM) and surface topography."
+    },
+    {
+      "question": "What is IIRS?",
+      "answer": "IIRS (Imaging InfraRed Spectrometer) operates in the 0.8-5.0 µm hyperspectral range on Chandrayaan-2 to map lunar mineralogy, hydroxyl presence, and polar water ice deposits."
+    },
+    {
+      "question": "What does inlier ratio mean?",
+      "answer": "The Inlier Ratio is the percentage of feature matches that geometrically agree with the estimated homography transformation. An inlier ratio above 50-60% indicates strong spatial correspondence."
+    },
+    {
+      "question": "What is image registration?",
+      "answer": "Image registration is the process of geometrically aligning two or more images of the same surface scene taken at different times, from different viewpoints, or by different sensors into a single unified coordinate system."
+    },
+    {
+      "question": "Why are my images not matching?",
+      "answer": "Images may fail to match if they cover completely different lunar regions, have insufficient crater/surface detail, suffer from extreme shadow/illumination changes, or have drastic scale differences (> 4x difference)."
+    },
+    {
+      "question": "What does same location mean?",
+      "answer": "Same Location means LunarVision has identified at least 4 geometrically consistent surface features (inliers) with a confidence score >= 0.20, confirming both images capture overlapping lunar terrain."
+    },
+    {
+      "question": "What sensors are supported?",
+      "answer": "LunarVision supports ISRO Chandrayaan-2/3 OHRC (0.25m panchromatic), TMC (5m stereo mapping), and IIRS (hyperspectral infrared), as well as generic lunar orbital imagery in JPEG, PNG, and scientific PDS .IMG binary formats."
+    },
+    {
+      "question": "How does the preprocessing work?",
+      "answer": "Preprocessing converts input images to single-channel uint8 arrays, handles 16-bit PDS .IMG scaling via min-max normalization, and applies CLAHE contrast enhancement to highlight subtle surface crater rims under harsh solar illumination."
+    }
+  ],
+  "latest_news_cache": [
+    {
+      "title": "ISRO Chandrayaan-3 Pragyan Rover Data Confirms Magma Ocean Theory",
+      "date": "2024-08-22",
+      "source": "ISRO / Nature Science Journal",
+      "summary": "APXS instrument data from the Chandrayaan-3 Vikram lander and Pragyan rover confirmed ferroan anorthosite composition near the lunar south pole, supporting the Lunar Magma Ocean (LMO) hypothesis.",
+      "url": "https://www.isro.gov.in"
+    },
+    {
+      "title": "Chandrayaan-2 OHRC Delivers Sub-0.25m Imagery of Lunar South Pole",
+      "date": "2024-05-15",
+      "source": "ISRO Space Applications Centre (SAC)",
+      "summary": "ISRO's OHRC onboard Chandrayaan-2 orbiter continues operating in prime health, providing high-resolution surface maps aiding site selection for upcoming Chandrayaan-4 sample return mission.",
+      "url": "https://www.isro.gov.in"
+    },
+    {
+      "title": "ISRO Announces Chandrayaan-4 Lunar Sample Return Mission Architecture",
+      "date": "2024-09-01",
+      "source": "ISRO Mission Operations",
+      "summary": "Chandrayaan-4 will feature a multi-module spacecraft (Ascender, Descender, Transfer Module, Re-entry Module) to collect lunar surface core samples and return them safely to Earth.",
+      "url": "https://www.isro.gov.in"
+    }
+  ]
+}
