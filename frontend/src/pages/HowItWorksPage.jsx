@@ -53,7 +53,7 @@ export default function HowItWorksPage() {
       title: 'Scale-Invariant Feature Detection (SIFT / AKAZE)',
       badge: 'Step 03: Keypoints',
       icon: Sparkles,
-      color: 'from-indigo-500/20 to-purple-500/20',
+      color: 'from-indigo-500/20 to-cyan-500/20',
       border: 'border-indigo-500/30',
       iconColor: 'text-indigo-400',
       summary: 'Detects scale- and rotation-invariant keypoints along crater rims and peaks.',
@@ -85,7 +85,7 @@ export default function HowItWorksPage() {
       title: 'RANSAC Geometric Outlier Rejection',
       badge: 'Step 05: Filtering',
       icon: Layers,
-      color: 'from-violet-500/20 to-purple-500/20',
+      color: 'from-violet-500/20 to-cyan-500/20',
       border: 'border-violet-500/30',
       iconColor: 'text-violet-400',
       summary: 'Isolates true geometric inliers and eliminates false matches.',
@@ -101,9 +101,9 @@ export default function HowItWorksPage() {
       title: 'Perspective Homography Warping',
       badge: 'Step 06: Registration',
       icon: Layers,
-      color: 'from-purple-500/20 to-pink-500/20',
-      border: 'border-purple-500/30',
-      iconColor: 'text-purple-400',
+      color: 'from-cyan-500/20 to-pink-500/20',
+      border: 'border-cyan-500/30',
+      iconColor: 'text-cyan-400',
       summary: 'Transforms source frame into baseline reference coordinate space.',
       details: [
         'Computes 3×3 projective Homography matrix H relating source 2D coordinates to reference.',
@@ -162,60 +162,80 @@ export default function HowItWorksPage() {
         </p>
       </div>
 
-      {/* 8 Step Cards */}
-      <div className="space-y-6">
-        {pipelineSteps.map((item) => {
+      {/* Alternating Zigzag 8-Step Pipeline Cards with Revolving Orbital Accent */}
+      <div className="space-y-8 relative">
+        {/* Central dashed orbital timeline line on large screens */}
+        <div className="hidden lg:block absolute left-1/2 top-4 bottom-4 w-0.5 border-l-2 border-dashed border-cyan-500/20 -translate-x-1/2 pointer-events-none"></div>
+
+        {pipelineSteps.map((item, index) => {
           const Icon = item.icon;
+          const isEven = index % 2 === 1;
+
           return (
             <div
               key={item.step}
-              className={`glass-panel p-6 rounded-2xl border ${item.border} bg-lunar-900/40 transition-all hover:border-cyan-500/50`}
+              className={`flex flex-col lg:flex-row items-center gap-6 ${
+                isEven ? 'lg:flex-row-reverse' : ''
+              }`}
             >
-              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`p-2.5 rounded-xl bg-gradient-to-br ${item.color} ${item.iconColor}`}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
-                        {item.badge}
-                      </span>
-                      <h3 className="text-base sm:text-lg font-bold text-white">
-                        {item.title}
-                      </h3>
-                    </div>
+              {/* Step Content Card */}
+              <div className="w-full lg:w-[calc(50%-2rem)] glass-panel p-6 sm:p-7 rounded-3xl border border-lunar-700/70 hover:border-cyan-500/50 bg-lunar-900/50 transition-all duration-300 hover:shadow-xl hover:shadow-cyan-950/40 relative overflow-hidden group">
+                {/* Subtle orbital glow in corner */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/15 transition-all pointer-events-none"></div>
+
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`p-2.5 rounded-xl bg-gradient-to-br ${item.color} ${item.iconColor} border border-cyan-500/30 group-hover:scale-110 transition-transform`}>
+                    <Icon className="w-5 h-5" />
                   </div>
-
-                  <p className="text-xs sm:text-sm text-slate-300 font-medium mb-3">
-                    {item.summary}
-                  </p>
-
-                  <ul className="space-y-1.5 text-xs text-slate-400 list-disc list-inside">
-                    {item.details.map((detail, idx) => (
-                      <li key={idx} className="leading-relaxed">
-                        {detail}
-                      </li>
-                    ))}
-                  </ul>
+                  <div>
+                    <span className="text-[11px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
+                      {item.badge}
+                    </span>
+                    <h3 className="text-base sm:text-lg font-bold text-white group-hover:text-cyan-200 transition-colors">
+                      {item.title}
+                    </h3>
+                  </div>
                 </div>
 
-                {/* Mathematical Formulation Card */}
-                <div className="lg:w-80 flex-shrink-0 p-4 rounded-xl bg-black/60 border border-lunar-800 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                      Mathematical Formulation
+                <p className="text-xs sm:text-sm text-slate-300 font-medium mb-3 leading-relaxed">
+                  {item.summary}
+                </p>
+
+                <ul className="space-y-1.5 text-xs text-slate-400 list-disc list-inside mb-4">
+                  {item.details.map((detail, idx) => (
+                    <li key={idx} className="leading-relaxed">
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+
+                {/* Mathematical Formulation Sub-box */}
+                <div className="p-3 rounded-xl bg-black/60 border border-lunar-800">
+                  <div className="flex items-center justify-between text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    <span>Mathematical Formulation</span>
+                    <span className="text-emerald-400 flex items-center gap-1 font-normal">
+                      <CheckCircle2 className="w-3 h-3" /> Verified
                     </span>
-                    <div className="p-2.5 rounded bg-lunar-950/80 border border-lunar-800/80 font-mono text-[11px] text-cyan-300 overflow-x-auto leading-tight">
-                      <code>{item.math}</code>
-                    </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-400 font-mono">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Implemented in OpenCV / NumPy</span>
+                  <div className="p-2 rounded-lg bg-lunar-950 border border-lunar-800/80 font-mono text-[11px] text-cyan-300 overflow-x-auto leading-tight">
+                    <code>{item.math}</code>
                   </div>
                 </div>
               </div>
+
+              {/* Central Orbital Node Badge */}
+              <div className="hidden lg:flex w-16 h-16 rounded-full bg-lunar-950 border-2 border-cyan-500/40 items-center justify-center relative flex-shrink-0 shadow-lg shadow-cyan-500/20 group">
+                <span className="font-mono text-xs font-bold text-cyan-400">
+                  {item.step < 10 ? `0${item.step}` : item.step}
+                </span>
+                {/* Revolving Planetary Satellite Indicator */}
+                <div className="absolute inset-0 rounded-full animate-revolve pointer-events-none">
+                  <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 shadow-md shadow-cyan-400/80 block -ml-1 -mt-1"></span>
+                </div>
+              </div>
+
+              {/* Empty Spacer on large screens for zigzag symmetry */}
+              <div className="hidden lg:block w-[calc(50%-2rem)]"></div>
             </div>
           );
         })}

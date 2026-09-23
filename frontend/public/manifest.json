@@ -1,0 +1,9 @@
+{
+  "name": "LunarVision",
+  "short_name": "LunarVision",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#06090f",
+  "theme_color": "#06090f",
+  "icons": [{ "src": "favicon.svg", "sizes": "512x512", "type": "image/svg+xml" }]
+}

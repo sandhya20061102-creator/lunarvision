@@ -86,7 +86,7 @@ export default function ChangeDetectionPage() {
       case 'Potential surface change':
         return 'bg-cyan-950/80 text-cyan-400 border-cyan-800';
       case 'Possible illumination artifact':
-        return 'bg-purple-950/80 text-purple-400 border-purple-800';
+        return 'bg-cyan-950/80 text-cyan-400 border-cyan-800';
       default:
         return 'bg-slate-900 text-slate-400 border-slate-700';
     }

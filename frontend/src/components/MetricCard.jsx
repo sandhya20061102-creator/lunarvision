@@ -28,7 +28,7 @@ export default function MetricCard({
     },
     indigo: {
       border: 'border-indigo-500/30',
-      bgGlow: 'from-indigo-500/10 to-purple-500/5',
+      bgGlow: 'from-indigo-500/10 to-cyan-500/5',
       iconColor: 'text-indigo-400',
       iconBg: 'bg-indigo-500/20 border-indigo-500/30',
       progressBar: 'bg-indigo-400',

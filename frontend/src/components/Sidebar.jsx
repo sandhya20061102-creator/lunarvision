@@ -7,7 +7,8 @@ import {
   Satellite,
   ChevronRight,
   ShieldCheck,
-  BookOpen
+  BookOpen,
+  Sun
 } from 'lucide-react';
 import { usePipeline } from '../context/PipelineContext';
 
@@ -31,11 +32,19 @@ export default function Sidebar() {
       description: 'SIFT/ORB & RANSAC Alignment'
     },
     {
+      id: 'sun_angle',
+      name: 'Sun-Angle Robustness',
+      icon: Sun,
+      badge: 'New',
+      badgeColor: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+      description: 'Illumination & confidence plot'
+    },
+    {
       id: 'three_sensor',
       name: 'Three-Sensor Analysis',
       icon: Satellite,
       badge: 'Extension',
-      badgeColor: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+      badgeColor: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
       description: 'OHRC, TMC & IIRS fusion'
     },
     {

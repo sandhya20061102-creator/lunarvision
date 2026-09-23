@@ -143,10 +143,79 @@ export const detectTemporalChanges = async (
       details: { error_type: 'network_failure' },
     };
   }
+}
+
+/**
+ * Analyze sun-angle robustness for a single image pair.
+ * POST /api/images/sun-angle-robustness
+ */
+export const analyzeSunAngleRobustness = async (
+  sourceFile,
+  referenceFile,
+  detector = 'SIFT',
+  manualAngle = null
+) => {
+  const formData = new FormData();
+  formData.append('source_image', sourceFile);
+  formData.append('reference_image', referenceFile);
+  formData.append('preferred_detector', detector);
+  if (manualAngle !== null && manualAngle !== undefined && manualAngle !== '') {
+    formData.append('manual_angle', manualAngle);
+  }
+  try {
+    const response = await apiClient.post('/api/images/sun-angle-robustness', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response?.data) {
+      return error.response.data;
+    }
+    return {
+      status: 'rejected',
+      reason: error.message || 'Network error during sun-angle robustness analysis.',
+      details: { error_type: 'network_failure' },
+    };
+  }
+};
+
+/**
+ * Run batch benchmark for sun-angle robustness across multiple pairs.
+ * POST /api/images/sun-angle-batch
+ */
+export const runSunAngleBatchBenchmark = async (
+  baseFile,
+  numPairs = 18,
+  detector = 'SIFT'
+) => {
+  const formData = new FormData();
+  formData.append('base_image', baseFile);
+  formData.append('num_pairs', numPairs);
+  formData.append('preferred_detector', detector);
+  try {
+    const response = await apiClient.post('/api/images/sun-angle-batch', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response?.data) {
+      return error.response.data;
+    }
+    return {
+      status: 'rejected',
+      reason: error.message || 'Network error during sun-angle batch benchmark.',
+      details: { error_type: 'network_failure' },
+    };
+  }
 };
 
 /**
  * Send chat query to /api/chat
+
  */
 export const sendChatMessage = async (message, isOnline = true) => {
   try {

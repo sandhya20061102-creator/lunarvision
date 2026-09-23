@@ -103,7 +103,7 @@ export default function ImageUploader({
                 <div className="p-3 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 mb-2">
                   <Database className="w-6 h-6 animate-pulse" />
                 </div>
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 mb-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 mb-1">
                   Scientific Lunar .IMG Data
                 </span>
                 <p className="text-xs font-semibold text-white truncate max-w-[220px]">{file?.name}</p>

@@ -8,7 +8,8 @@ import ThreeSensorPage from './pages/ThreeSensorPage';
 import ChangeDetectionPage from './pages/ChangeDetectionPage';
 import ResultsPage from './pages/ResultsPage';
 import HowItWorksPage from './pages/HowItWorksPage';
-import Chatbot from './components/Chatbot';
+import SunAnglePage from './pages/SunAnglePage';
+
 
 function MainAppLayout() {
   const { activeTab } = usePipeline();
@@ -27,43 +28,53 @@ function MainAppLayout() {
         return <ResultsPage />;
       case 'how_it_works':
         return <HowItWorksPage />;
+      case 'sun_angle': return <SunAnglePage />;
       default:
         return <Dashboard />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-lunar-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+    <div className="min-h-screen space-bg text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
       {/* Top Navigation Header */}
       <Header />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar Navigation */}
-        <Sidebar />
+        {/* Left Sidebar Navigation - Only show when not on dashboard for a cleaner landing page, or keep it if required. Since reference has no sidebar, we hide it on dashboard. */}
+        {/* Sidebar hidden */}
 
         {/* Dynamic Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-gradient-to-b from-lunar-950 via-lunar-900/30 to-lunar-950">
-          <div className="max-w-7xl mx-auto">
+        <main className={`flex-1 overflow-y-auto ${activeTab === 'dashboard' ? 'dashboard-override' : 'p-4 sm:p-6 lg:p-8'}`}
+          style={activeTab !== 'dashboard' ? { background: 'linear-gradient(180deg, #010108 0%, #020a18 100%)' } : undefined}
+        >
+          <div className={activeTab === 'dashboard' ? 'w-full h-full' : 'max-w-7xl mx-auto'}>
             {renderActivePage()}
           </div>
         </main>
       </div>
 
       {/* Telemetry Footer */}
-      <footer className="border-t border-lunar-800/60 py-3 px-6 bg-lunar-950/80 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400">
-        <div>
-          <span>LunarVision CV Engine</span>
-          <span className="mx-2 text-slate-400">•</span>
-          <span className="text-slate-400">Planetary Surface Registration & Temporal Change Detection</span>
+      <footer
+        className="py-2.5 px-8 flex flex-col sm:flex-row items-center justify-between text-[11px] z-40"
+        style={{
+          background: 'rgba(1, 3, 12, 0.90)',
+          borderTop: '1px solid rgba(0, 180, 255, 0.08)',
+          color: '#4a6a80',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span style={{ color: '#3a5a70' }}>LunarVision CV Engine</span>
+          <span style={{ color: '#2a3a45' }}>•</span>
+          <span style={{ color: '#2a4055' }}>Planetary Surface Registration &amp; Temporal Change Detection</span>
         </div>
-        <div className="mt-2 sm:mt-0 font-mono text-[11px] text-cyan-400/80">
+        <div className="mt-1 sm:mt-0 font-mono" style={{ color: '#00a8c8', opacity: 0.7 }}>
           FastAPI + OpenCV + scikit-image + React 18
         </div>
       </footer>
 
       {/* Offline-First AI Chatbot Widget */}
-      <Chatbot />
+      
     </div>
   );
 }

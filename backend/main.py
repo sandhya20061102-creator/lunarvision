@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers.image_routes import router as image_router
-from routers.chat_routes import router as chat_router
+from backend.routers.image_routes import router as image_router
+
 
 # Initialize application directories
 BASE_DIR = Path(__file__).resolve().parent
@@ -29,6 +29,14 @@ app = FastAPI(
 default_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:5176",
+    "http://127.0.0.1:5176",
+    "http://localhost:5177",
+    "http://127.0.0.1:5177",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -56,7 +64,7 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 
 # Include Routers
 app.include_router(image_router, prefix="/api/images", tags=["Images"])
-app.include_router(chat_router, prefix="/api/chat", tags=["Chatbot"])
+# app.include_router(chat_router, prefix="/api/chat", tags=["Chatbot"])
 
 
 
@@ -91,5 +99,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=False)

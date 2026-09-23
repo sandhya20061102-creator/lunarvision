@@ -258,7 +258,7 @@ export default function ResultsPage() {
           {changeDetectionResult?.artifacts?.annotated_visualization && (
             <div className="glass-panel p-4 rounded-xl border border-lunar-800 flex flex-col justify-between">
               <div>
-                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">
+                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
                   Heuristic Output
                 </span>
                 <h4 className="text-sm font-bold text-white mt-1">Annotated Candidates</h4>

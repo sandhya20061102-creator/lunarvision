@@ -128,7 +128,7 @@ export default function ThreeSensorPage() {
       {/* Header Info & Official Extension Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-950/80 border border-purple-800 text-purple-300 text-xs font-semibold mb-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-800 text-cyan-300 text-xs font-semibold mb-2">
             <Satellite className="w-3.5 h-3.5" />
             Module 02: Three-Sensor Analysis Extension
           </div>
@@ -145,7 +145,7 @@ export default function ThreeSensorPage() {
           <button
             onClick={handleRunPairwiseRegistration}
             disabled={isLoading || (!ohrcFile && !tmcFile && !iirsFile)}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-purple-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-all hover:scale-[1.02]"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-all hover:scale-[1.02]"
           >
             {isLoading ? (
               <>
@@ -161,8 +161,8 @@ export default function ThreeSensorPage() {
       </div>
 
       {/* Scientific Transparency Notice */}
-      <div className="glass-panel p-4 rounded-2xl border border-purple-500/40 bg-purple-950/20 flex items-start gap-3">
-        <Info className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+      <div className="glass-panel p-4 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 flex items-start gap-3">
+        <Info className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-slate-300 leading-relaxed">
           <span className="font-bold text-white block mb-0.5">Three-Sensor Analysis Extension Notice:</span>
           This module performs real pairwise computer vision matching between a selected reference hub sensor and secondary payloads. If cross-modal spectral/spatial disparities prevent stable geometric correspondence, the system will not force a false registration.
@@ -174,7 +174,7 @@ export default function ThreeSensorPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="font-bold text-white text-sm sm:text-base flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-purple-400" />
+              <Sliders className="w-4 h-4 text-cyan-400" />
               Registration Hub & Orbital Metadata
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -184,12 +184,12 @@ export default function ThreeSensorPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Hub Selector */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-lunar-950 border border-purple-800/80 text-xs">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-lunar-950 border border-cyan-800/80 text-xs">
               <span className="text-slate-400">Reference Hub:</span>
               <select
                 value={hubSensor}
                 onChange={(e) => setHubSensor(e.target.value)}
-                className="bg-transparent font-bold text-purple-300 focus:outline-none cursor-pointer"
+                className="bg-transparent font-bold text-cyan-300 focus:outline-none cursor-pointer"
               >
                 <option value="OHRC" className="bg-lunar-900 text-white">OHRC (0.25m Optical Hub)</option>
                 <option value="TMC" className="bg-lunar-900 text-white">TMC (5.0m Stereo Hub)</option>
@@ -224,7 +224,7 @@ export default function ThreeSensorPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* OHRC Sensor Card */}
-          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'OHRC' ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-950/40' : 'border-cyan-500/40 bg-gradient-to-b from-cyan-950/40 to-lunar-950'} flex flex-col justify-between`}>
+          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'OHRC' ? 'border-cyan-500 bg-cyan-950/40 shadow-lg shadow-cyan-950/40' : 'border-cyan-500/40 bg-gradient-to-b from-cyan-950/40 to-lunar-950'} flex flex-col justify-between`}>
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
@@ -244,7 +244,7 @@ export default function ThreeSensorPage() {
           </div>
 
           {/* TMC Sensor Card */}
-          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'TMC' ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-950/40' : 'border-blue-500/40 bg-gradient-to-b from-blue-950/40 to-lunar-950'} flex flex-col justify-between`}>
+          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'TMC' ? 'border-cyan-500 bg-cyan-950/40 shadow-lg shadow-cyan-950/40' : 'border-blue-500/40 bg-gradient-to-b from-blue-950/40 to-lunar-950'} flex flex-col justify-between`}>
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">
@@ -264,13 +264,13 @@ export default function ThreeSensorPage() {
           </div>
 
           {/* IIRS Sensor Card */}
-          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'IIRS' ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-950/40' : 'border-purple-500/40 bg-gradient-to-b from-purple-950/40 to-lunar-950'} flex flex-col justify-between`}>
+          <div className={`glass-panel p-5 rounded-2xl border ${hubSensor === 'IIRS' ? 'border-cyan-500 bg-cyan-950/40 shadow-lg shadow-cyan-950/40' : 'border-cyan-500/40 bg-gradient-to-b from-cyan-950/40 to-lunar-950'} flex flex-col justify-between`}>
             <div>
               <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
                   {hubSensor === 'IIRS' ? '★ REFERENCE HUB' : 'Spectroscopy'}
                 </span>
-                <span className="text-xs font-mono text-purple-300">0.8 - 5.0 μm</span>
+                <span className="text-xs font-mono text-cyan-300">0.8 - 5.0 μm</span>
               </div>
               <h4 className="font-bold text-white text-base">IIRS</h4>
               <p className="text-[11px] text-slate-400 mt-1">Imaging Infrared Spectrometer</p>
@@ -278,7 +278,7 @@ export default function ThreeSensorPage() {
                 Hyperspectral mineralogical mapping detecting pyroxene, plagioclase, and hydroxyl (OH) absorption bands.
               </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-lunar-800 text-[11px] font-mono text-purple-400">
+            <div className="mt-4 pt-3 border-t border-lunar-800 text-[11px] font-mono text-cyan-400">
               Spectral Signature Layer
             </div>
           </div>
@@ -288,7 +288,7 @@ export default function ThreeSensorPage() {
       {/* 3 Ingestion Upload Slots */}
       <div>
         <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
-          <Layers className="w-4 h-4 text-purple-400" />
+          <Layers className="w-4 h-4 text-cyan-400" />
           Multi-Sensor Image Ingestion Channels
         </h3>
 
@@ -301,7 +301,7 @@ export default function ThreeSensorPage() {
             onImageSelected={handleSelectOhrc}
             onImageRemoved={() => handleSelectOhrc(null)}
             badgeText={hubSensor === 'OHRC' ? 'HUB REFERENCE' : 'Secondary'}
-            badgeColor={hubSensor === 'OHRC' ? 'text-purple-300 border-purple-700 bg-purple-950' : 'text-cyan-400 border-cyan-800 bg-cyan-950/60'}
+            badgeColor={hubSensor === 'OHRC' ? 'text-cyan-300 border-cyan-700 bg-cyan-950' : 'text-cyan-400 border-cyan-800 bg-cyan-950/60'}
           />
 
           <ImageUploader
@@ -312,7 +312,7 @@ export default function ThreeSensorPage() {
             onImageSelected={handleSelectTmc}
             onImageRemoved={() => handleSelectTmc(null)}
             badgeText={hubSensor === 'TMC' ? 'HUB REFERENCE' : 'Secondary'}
-            badgeColor={hubSensor === 'TMC' ? 'text-purple-300 border-purple-700 bg-purple-950' : 'text-blue-400 border-blue-800 bg-blue-950/60'}
+            badgeColor={hubSensor === 'TMC' ? 'text-cyan-300 border-cyan-700 bg-cyan-950' : 'text-blue-400 border-blue-800 bg-blue-950/60'}
           />
 
           <ImageUploader
@@ -323,7 +323,7 @@ export default function ThreeSensorPage() {
             onImageSelected={handleSelectIirs}
             onImageRemoved={() => handleSelectIirs(null)}
             badgeText={hubSensor === 'IIRS' ? 'HUB REFERENCE' : 'Secondary'}
-            badgeColor={hubSensor === 'IIRS' ? 'text-purple-300 border-purple-700 bg-purple-950' : 'text-purple-400 border-purple-800 bg-purple-950/60'}
+            badgeColor={hubSensor === 'IIRS' ? 'text-cyan-300 border-cyan-700 bg-cyan-950' : 'text-cyan-400 border-cyan-800 bg-cyan-950/60'}
           />
         </div>
       </div>
@@ -347,7 +347,7 @@ export default function ThreeSensorPage() {
         <div className="space-y-8 animate-fadeIn">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-purple-400" />
+              <Activity className="w-5 h-5 text-cyan-400" />
               Pairwise Registration Results Summary
             </h3>
             <span className="text-xs text-slate-400 font-mono">
@@ -414,7 +414,7 @@ export default function ThreeSensorPage() {
                           value={`${res.metrics.registration_confidence_percentage}%`}
                           progress={res.metrics.registration_confidence_percentage}
                           description="Pairwise registration confidence"
-                          colorScheme="purple"
+                          colorScheme="cyan"
                         />
                       </div>
 
@@ -437,7 +437,7 @@ export default function ThreeSensorPage() {
                           subtitle="50/50 transparency fusion"
                           imagePath={res.artifacts.overlay_comparison}
                           badgeText="Fusion View"
-                          badgeColor="bg-purple-950 text-purple-400 border-purple-800"
+                          badgeColor="bg-cyan-950 text-cyan-400 border-cyan-800"
                         />
                       </div>
                     </div>

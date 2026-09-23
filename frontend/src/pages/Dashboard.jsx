@@ -1,207 +1,257 @@
 import React from 'react';
-import {
-  Layers,
-  Sparkles,
-  Cpu,
-  BarChart3,
-  Satellite,
-  CheckCircle2,
-  ArrowRight,
-  ShieldCheck,
-  Zap,
-  Clock,
-  Compass
-} from 'lucide-react';
+import { Target, Clock, Layers, Globe, Upload, Sparkles } from 'lucide-react';
 import { usePipeline } from '../context/PipelineContext';
-import PipelineVisualizer from '../components/PipelineVisualizer';
+import RotatingMoon from '../components/RotatingMoon';
+
+/* ──────────────────────────────────────────────────────────
+   Static star positions — avoids re-renders
+────────────────────────────────────────────────────────── */
+const STARS = [
+  { top: '7%',  left: '5%',  size: 2,   cls: 'twinkle-1' },
+  { top: '14%', left: '22%', size: 1.5, cls: 'twinkle-3' },
+  { top: '4%',  left: '40%', size: 1,   cls: 'twinkle-2' },
+  { top: '9%',  left: '58%', size: 2,   cls: 'twinkle-4' },
+  { top: '3%',  left: '75%', size: 1.5, cls: 'twinkle-1' },
+  { top: '18%', left: '88%', size: 1,   cls: 'twinkle-5' },
+  { top: '25%', left: '12%', size: 1.5, cls: 'twinkle-2' },
+  { top: '35%', left: '3%',  size: 1,   cls: 'twinkle-4' },
+  { top: '45%', left: '92%', size: 2,   cls: 'twinkle-3' },
+  { top: '55%', left: '7%',  size: 1,   cls: 'twinkle-5' },
+  { top: '62%', left: '18%', size: 1.5, cls: 'twinkle-1' },
+  { top: '72%', left: '82%', size: 1,   cls: 'twinkle-2' },
+  { top: '80%', left: '95%', size: 2,   cls: 'twinkle-4' },
+  { top: '88%', left: '35%', size: 1,   cls: 'twinkle-3' },
+  { top: '92%', left: '50%', size: 1.5, cls: 'twinkle-5' },
+  { top: '30%', left: '48%', size: 1,   cls: 'twinkle-1' },
+  { top: '50%', left: '55%', size: 1.5, cls: 'twinkle-3' },
+  { top: '20%', left: '70%', size: 1,   cls: 'twinkle-2' },
+  { top: '65%', left: '62%', size: 2,   cls: 'twinkle-4' },
+  { top: '78%', left: '45%', size: 1,   cls: 'twinkle-1' },
+];
+
+/* ──────────────────────────────────────────────────────────
+   Feature strip cards matching the reference
+────────────────────────────────────────────────────────── */
+const FEATURES = [
+  {
+    tab:      'registration',
+    Icon:     Target,
+    title:    'Image Registration',
+    subtitle: 'Sub-pixel alignment',
+  },
+  {
+    tab:      'change_detection',
+    Icon:     Clock,
+    title:    'Temporal Change Detection',
+    subtitle: 'Track surface alterations',
+  },
+  {
+    tab:      'three_sensor',
+    Icon:     Layers,
+    title:    'Multi-Sensor Analysis',
+    subtitle: 'Cross-payload correspondence',
+  },
+  {
+    tab:      'sun_angle',
+    Icon:     Globe,
+    title:    'Geospatial Footprint',
+    subtitle: 'Location & coverage mapping',
+  },
+];
 
 export default function Dashboard() {
-  const { setActiveTab, backendHealth, registrationResult, changeDetectionResult } = usePipeline();
-
-  const isHealthy = backendHealth.status === 'healthy';
+  const { setActiveTab } = usePipeline();
 
   return (
-    <div className="space-y-8 pb-12 animate-fadeIn">
-      {/* Hero Welcome Banner */}
-      <div className="glass-panel rounded-3xl p-6 sm:p-10 relative overflow-hidden border border-cyan-500/30 bg-gradient-to-br from-lunar-900/90 via-lunar-950 to-lunar-900/80 shadow-2xl">
-        {/* Glow circles */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-        <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div className="w-full relative overflow-hidden min-h-screen flex flex-col animate-fadeIn">
 
-        <div className="relative z-10 max-w-4xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-800/60 text-cyan-400 text-xs font-semibold mb-4 shadow-sm">
-            <Sparkles className="w-3.5 h-3.5" />
-            Full-Stack Planetary Vision System
-          </div>
+      {/* ══════════════════════════════════════════════
+          BACKGROUND LAYER
+      ══════════════════════════════════════════════ */}
+      <div className="absolute inset-0 pointer-events-none z-0">
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-            LunarVision
-          </h1>
-          <p className="text-lg sm:text-xl font-medium text-cyan-300/90 mt-1">
-            Multi-Modal Lunar Image Correspondence and Temporal Change Detection
-          </p>
+        {/* Deep-space blue radial behind the Moon (right side) */}
+        <div
+          className="absolute bg-pulse"
+          style={{
+            top: '5%', right: '-8%',
+            width: '62%', height: '88%',
+            background:
+              'radial-gradient(ellipse at center, rgba(0,60,140,0.30) 0%, rgba(0,20,70,0.15) 45%, transparent 70%)',
+            filter: 'blur(40px)',
+            borderRadius: '50%',
+          }}
+        />
 
-          <p className="mt-4 text-slate-300 text-sm sm:text-base leading-relaxed max-w-3xl">
-            LunarVision is an end-to-end computer vision platform engineered for planetary surface exploration.
-            It performs sub-pixel image registration on temporal orbital imagery, normalizes solar illumination, computes RANSAC homography transformations, and identifies surface alterations such as new impact craters, boulder displacements, and regolith disturbances.
-          </p>
+        {/* Subtle left-side glow for hero text area */}
+        <div
+          className="absolute"
+          style={{
+            top: '15%', left: '-5%',
+            width: '40%', height: '50%',
+            background:
+              'radial-gradient(ellipse at center, rgba(0,130,200,0.08) 0%, transparent 70%)',
+            filter: 'blur(60px)',
+          }}
+        />
 
-          <div className="mt-8 flex flex-wrap items-center gap-4">
-            <button
-              onClick={() => setActiveTab('registration')}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-sm shadow-lg shadow-cyan-500/25 flex items-center gap-2 transition-all hover:scale-[1.02]"
-            >
-              <Layers className="w-4 h-4" /> Start Image Registration
-            </button>
-            <button
-              onClick={() => setActiveTab('change_detection')}
-              className="px-6 py-3 rounded-xl bg-lunar-900/90 hover:bg-lunar-800 text-slate-200 hover:text-white border border-lunar-700 font-semibold text-sm flex items-center gap-2 transition-all hover:scale-[1.02]"
-            >
-              <Cpu className="w-4 h-4" /> Detect Temporal Changes
-            </button>
-          </div>
-        </div>
+        {/* Top-left diagonal light streak */}
+        <div
+          className="absolute light-streak"
+          style={{
+            top: '15%', left: '0',
+            width: '35%', height: '1px',
+            background:
+              'linear-gradient(90deg, transparent, rgba(0,200,255,0.35), transparent)',
+          }}
+        />
+        {/* Second streak */}
+        <div
+          className="absolute light-streak-2"
+          style={{
+            top: '8%', left: '0',
+            width: '25%', height: '1px',
+            background:
+              'linear-gradient(90deg, transparent, rgba(0,160,255,0.20), transparent)',
+          }}
+        />
+
+        {/* Animated twinkling stars */}
+        {STARS.map((s, i) => (
+          <div
+            key={i}
+            className={`absolute rounded-full ${s.cls}`}
+            style={{
+              top: s.top,
+              left: s.left,
+              width:  `${s.size}px`,
+              height: `${s.size}px`,
+              background:
+                s.size >= 2
+                  ? 'radial-gradient(circle, #ffffff 0%, rgba(180,230,255,0.6) 60%, transparent 100%)'
+                  : 'rgba(200,230,255,0.85)',
+              boxShadow: s.size >= 2 ? '0 0 4px rgba(200,230,255,0.6)' : 'none',
+            }}
+          />
+        ))}
       </div>
 
-      {/* System Status Telemetry Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-panel p-5 rounded-2xl border border-lunar-700/60 bg-lunar-900/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Backend Server</span>
-            <div className={`p-2 rounded-lg ${isHealthy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-              <CheckCircle2 className="w-4 h-4" />
+      {/* ══════════════════════════════════════════════
+          HERO — two-column layout
+      ══════════════════════════════════════════════ */}
+      <div className="relative z-10 flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col lg:flex-row items-center justify-between px-8 sm:px-12 lg:px-16 pt-10 pb-4 max-w-[1600px] mx-auto w-full gap-8 lg:gap-0">
+
+          {/* ── LEFT: Hero copy & CTAs ── */}
+          <div className="w-full lg:w-[48%] flex flex-col gap-7 z-20">
+
+            {/* Eyebrow */}
+            <div className="flex items-center gap-3">
+              <span className="block w-8 h-[1.5px] bg-cyan-400" style={{ boxShadow: '0 0 6px rgba(0,220,255,0.7)' }} />
+              <span
+                className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.22em]"
+                style={{ color: '#00d8f8' }}
+              >
+                Multi-Modal Lunar Image Correspondence
+              </span>
             </div>
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            {isHealthy ? 'FastAPI 0.141 Online' : 'Connecting...'}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            {isHealthy ? 'Port 8000 (CORS Enabled)' : 'Verifying local endpoint'}
-          </p>
-        </div>
 
-        <div className="glass-panel p-5 rounded-2xl border border-lunar-700/60 bg-lunar-900/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Vision Stack</span>
-            <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400">
-              <Zap className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            OpenCV {backendHealth.data?.opencv_version || '4.13.0'}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">SIFT, AKAZE & RANSAC</p>
-        </div>
-
-        <div className="glass-panel p-5 rounded-2xl border border-lunar-700/60 bg-lunar-900/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Science Metrics</span>
-            <div className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400">
-              <Compass className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            scikit-image {backendHealth.data?.skimage_version || '0.26.0'}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">SSIM & Intensity Differencing</p>
-        </div>
-
-        <div className="glass-panel p-5 rounded-2xl border border-lunar-700/60 bg-lunar-900/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase">Session Status</span>
-            <div className="p-2 rounded-lg bg-purple-500/20 text-purple-400">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="mt-2 text-xl font-bold text-white">
-            {registrationResult ? 'Active Registration' : 'Ready for Ingestion'}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            {changeDetectionResult ? `${changeDetectionResult.change_metrics?.total_regions_detected} anomalies detected` : 'No pipeline errors'}
-          </p>
-        </div>
-      </div>
-
-      {/* Pipeline Architecture Diagram */}
-      <PipelineVisualizer currentStage={registrationResult ? (changeDetectionResult ? 'completed' : 5) : null} />
-
-      {/* Quick Launch Cards */}
-      <div className="space-y-4">
-        <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-cyan-400" />
-          Primary Operational Modules
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Card 1 */}
-          <div
-            onClick={() => setActiveTab('registration')}
-            className="glass-panel p-6 rounded-2xl border border-lunar-700/60 hover:border-cyan-500/60 bg-lunar-900/30 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-cyan-950/40 group flex flex-col justify-between"
-          >
+            {/* Main title */}
             <div>
-              <div className="p-3 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 w-fit mb-4 group-hover:scale-110 transition-transform">
-                <Layers className="w-6 h-6" />
-              </div>
-              <h3 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
-                1. Image Registration
-              </h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                Upload baseline and temporal secondary images. The system extracts SIFT/AKAZE keypoints, matches descriptors using Lowe's ratio test, and computes perspective homography via RANSAC.
-              </p>
+              <h1 className="text-[4rem] sm:text-[5rem] lg:text-[5.8rem] font-extrabold leading-[0.95] tracking-tight">
+                <span style={{ color: '#f0f8ff' }}>Lunar</span>
+                <span className="glow-text-cyan">Vision</span>
+              </h1>
             </div>
-            <div className="mt-6 flex items-center justify-between text-xs text-cyan-400 font-semibold group-hover:translate-x-1 transition-transform">
-              <span>Open Registration Module</span>
-              <ArrowRight className="w-4 h-4" />
+
+            {/* Subtitle */}
+            <h2
+              className="text-xl sm:text-2xl lg:text-2xl font-light leading-relaxed"
+              style={{ color: '#c8dff0' }}
+            >
+              Match. Register.{' '}
+              <span className="font-bold" style={{ color: '#f0f8ff' }}>
+                Understand the Moon.
+              </span>
+            </h2>
+
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 pt-1">
+              <button
+                onClick={() => setActiveTab('registration')}
+                className="btn-primary-lunar px-7 py-3.5 rounded-full font-bold text-sm flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Images
+              </button>
+              <button
+                onClick={() => setActiveTab('results')}
+                className="btn-secondary-lunar px-7 py-3.5 rounded-full font-semibold text-sm flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4 text-cyan-300" />
+                Explore Results
+              </button>
+            </div>
+
+            {/* Mission status strip */}
+            <div className="inline-flex items-center gap-2.5 mission-strip px-5 py-2.5 rounded-full self-start">
+              <span className="relative flex h-2 w-2 flex-shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span className="text-[11px] font-mono tracking-wide" style={{ color: '#a0d8ef' }}>
+                Chandrayaan-2
+                <span className="opacity-40 mx-1">/</span>
+                OHRC
+                <span className="opacity-40 mx-1">/</span>
+                TMC
+                <span className="opacity-40 mx-1">/</span>
+                IIRS
+                <span className="opacity-40 mx-1">/</span>
+                <span style={{ color: '#00e5a0' }}>System Online</span>
+              </span>
             </div>
           </div>
 
-          {/* Card 2 */}
+          {/* ── RIGHT: Moon visual ── */}
           <div
-            onClick={() => setActiveTab('three_sensor')}
-            className="glass-panel p-6 rounded-2xl border border-lunar-700/60 hover:border-purple-500/60 bg-lunar-900/30 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-purple-950/40 group flex flex-col justify-between"
+            className="w-full lg:w-[52%] flex items-center justify-center z-10"
+            style={{ height: 'clamp(340px, 55vw, 620px)' }}
           >
-            <div>
-              <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 w-fit mb-4 group-hover:scale-110 transition-transform">
-                <Satellite className="w-6 h-6" />
-              </div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white group-hover:text-purple-300 transition-colors">
-                  2. Three-Sensor Analysis
-                </h3>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800">
-                  Extension
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                Multi-sensor fusion framework designed for OHRC (High-Res Optical), TMC (Terrain Stereo Mapping), and IIRS (Hyperspectral Mineralogy) cross-modal correspondence.
-              </p>
-            </div>
-            <div className="mt-6 flex items-center justify-between text-xs text-purple-400 font-semibold group-hover:translate-x-1 transition-transform">
-              <span>Explore Sensor Architecture</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
+            <RotatingMoon />
           </div>
+        </div>
 
-          {/* Card 3 */}
-          <div
-            onClick={() => setActiveTab('change_detection')}
-            className="glass-panel p-6 rounded-2xl border border-lunar-700/60 hover:border-emerald-500/60 bg-lunar-900/30 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-emerald-950/40 group flex flex-col justify-between"
-          >
-            <div>
-              <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 w-fit mb-4 group-hover:scale-110 transition-transform">
-                <Cpu className="w-6 h-6" />
-              </div>
-              <h3 className="text-base font-bold text-white group-hover:text-emerald-300 transition-colors">
-                3. Temporal Change Detection
-              </h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                SSIM dissimilarity, illumination compensation, and connected component analysis to isolate and label candidate surface variations into explainable morphological classes.
-              </p>
-            </div>
-            <div className="mt-6 flex items-center justify-between text-xs text-emerald-400 font-semibold group-hover:translate-x-1 transition-transform">
-              <span>Detect Surface Alterations</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
+        {/* ══════════════════════════════════════════════
+            FEATURE CARD STRIP
+        ══════════════════════════════════════════════ */}
+        <div className="relative z-20 w-full px-6 sm:px-10 lg:px-14 pb-10 max-w-[1600px] mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {FEATURES.map(({ tab, Icon, title, subtitle }) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="feature-strip-card rounded-xl px-5 py-4 flex items-center gap-4 text-left group cursor-pointer"
+              >
+                {/* Icon */}
+                <div className="feature-icon-glow w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-5 h-5" style={{ color: '#00d4f8' }} />
+                </div>
+
+                {/* Text */}
+                <div className="min-w-0">
+                  <p
+                    className="text-sm font-semibold leading-tight mb-0.5 group-hover:text-cyan-300 transition-colors"
+                    style={{ color: '#e0f0ff' }}
+                  >
+                    {title}
+                  </p>
+                  <p className="text-xs leading-tight" style={{ color: '#6a90b0' }}>
+                    {subtitle}
+                  </p>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       </div>

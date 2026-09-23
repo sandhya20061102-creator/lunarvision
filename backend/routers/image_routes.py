@@ -15,12 +15,13 @@ import numpy as np
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 
-from services.preprocessing import PreprocessingService
-from services.feature_detection import FeatureDetectionService
-from services.matching import FeatureMatchingService
-from services.registration import ImageRegistrationService
-from services.metrics import MetricsService
-from services.change_detection import ChangeDetectionService
+from backend.services.preprocessing import PreprocessingService
+from backend.services.feature_detection import FeatureDetectionService
+from backend.services.matching import FeatureMatchingService
+from backend.services.registration import ImageRegistrationService
+from backend.services.metrics import MetricsService
+from backend.services.change_detection import ChangeDetectionService
+from backend.services.sun_angle_service import SunAngleService
 
 logger = logging.getLogger(__name__)
 
@@ -445,3 +446,51 @@ async def detect_temporal_changes(
         },
         "disclaimer": "Detected regions represent potential surface changes and are not scientifically confirmed discoveries."
     }
+@router.post("/sun-angle-robustness")
+def analyze_sun_angle_robustness(
+    source_image: UploadFile = File(..., description="Source lunar image"),
+    reference_image: UploadFile = File(..., description="Reference lunar image"),
+    preferred_detector: str = Form("SIFT", description="Feature detector to use"),
+    manual_angle: Optional[float] = Form(None, description="Optional manual sun-angle difference in degrees")
+) -> Dict[str, Any]:
+    """Analyze sun-angle robustness for a single lunar image pair."""
+    try:
+        src_bytes = source_image.file.read()
+        ref_bytes = reference_image.file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read image stream: {e}")
+
+    service = SunAngleService()
+    return service.analyze_pair_robustness(
+        src_bytes=src_bytes,
+        ref_bytes=ref_bytes,
+        preferred_detector=preferred_detector,
+        manual_angle_diff=manual_angle,
+        src_filename=source_image.filename,
+        ref_filename=reference_image.filename
+    )
+
+
+@router.post("/sun-angle-batch")
+def run_sun_angle_batch(
+    base_image: UploadFile = File(..., description="Baseline lunar image for batch simulation"),
+    num_pairs: int = Form(18, description="Number of image pairs for batch evaluation"),
+    preferred_detector: str = Form("SIFT", description="Feature detector to use")
+) -> Dict[str, Any]:
+    """Run sun‑angle batch benchmark and return wrapped results."""
+    try:
+        base_bytes = base_image.file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read uploaded image: {e}")
+
+    try:
+        service = SunAngleService()
+        results = service.run_batch_sun_angle_benchmark(
+            base_image_bytes=base_bytes,
+            num_pairs=num_pairs,
+            preferred_detector=preferred_detector,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"status": "success", "results": results}

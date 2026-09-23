@@ -23,9 +23,9 @@ export default function DownloadButton({
   };
 
   const variants = {
-    primary: 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold shadow-lg shadow-cyan-500/20 border border-cyan-400/30',
+    primary: 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold shadow-lg shadow-amber-500/20 border border-amber-400/30',
     secondary: 'bg-lunar-800 hover:bg-lunar-700 text-white border border-lunar-600',
-    outline: 'bg-transparent hover:bg-lunar-900 text-cyan-400 border border-cyan-500/40 hover:border-cyan-400',
+    outline: 'bg-transparent hover:bg-lunar-900 text-amber-400 border border-amber-500/40 hover:border-amber-400',
   };
 
   const sizes = {
