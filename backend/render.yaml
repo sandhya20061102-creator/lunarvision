@@ -12,4 +12,5 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.8
       - key: ALLOWED_ORIGINS
-        value: https://lunarvision.vercel.app,http://localhost:5173
+        value: https://lunarvision-1.onrender.com,https://lunarvision.onrender.com,https://lunarvision.vercel.app,http://localhost:5173
+

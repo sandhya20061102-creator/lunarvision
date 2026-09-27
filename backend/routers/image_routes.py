@@ -15,13 +15,23 @@ import numpy as np
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 
-from backend.services.preprocessing import PreprocessingService
-from backend.services.feature_detection import FeatureDetectionService
-from backend.services.matching import FeatureMatchingService
-from backend.services.registration import ImageRegistrationService
-from backend.services.metrics import MetricsService
-from backend.services.change_detection import ChangeDetectionService
-from backend.services.sun_angle_service import SunAngleService
+try:
+    from backend.services.preprocessing import PreprocessingService
+    from backend.services.feature_detection import FeatureDetectionService
+    from backend.services.matching import FeatureMatchingService
+    from backend.services.registration import ImageRegistrationService
+    from backend.services.metrics import MetricsService
+    from backend.services.change_detection import ChangeDetectionService
+    from backend.services.sun_angle_service import SunAngleService
+except ImportError:
+    from services.preprocessing import PreprocessingService
+    from services.feature_detection import FeatureDetectionService
+    from services.matching import FeatureMatchingService
+    from services.registration import ImageRegistrationService
+    from services.metrics import MetricsService
+    from services.change_detection import ChangeDetectionService
+    from services.sun_angle_service import SunAngleService
+
 
 logger = logging.getLogger(__name__)
 

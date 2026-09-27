@@ -1,0 +1,4 @@
+pair_id,source_path,reference_path,ground_truth_path
+pair_01_png,02_temporal_rotated_shifted.png,01_baseline_pre_event.png,
+pair_02_pds_img,06_scientific_lunar_transformed.IMG,05_scientific_lunar_reference.IMG,
+pair_03_unrelated,04_unrelated_lunar_terrain.png,01_baseline_pre_event.png,

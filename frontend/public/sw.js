@@ -51,6 +51,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Bypass Service Worker for all other API requests so network calls are handled directly by Axios/fetch
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+
   // Standard static assets - Cache First with Network Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

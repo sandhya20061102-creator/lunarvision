@@ -6,7 +6,11 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from services.chatbot_service import chatbot_service
+try:
+    from backend.services.chatbot_service import chatbot_service
+except ImportError:
+    from services.chatbot_service import chatbot_service
+
 
 router = APIRouter()
 
