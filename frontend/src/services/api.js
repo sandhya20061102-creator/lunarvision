@@ -199,6 +199,7 @@ export const runSunAngleBatchBenchmark = async (
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 180000, // 180s timeout specifically for 18-pair multi-angle CV benchmark on cloud infrastructure
     });
     return response.data;
   } catch (error) {
