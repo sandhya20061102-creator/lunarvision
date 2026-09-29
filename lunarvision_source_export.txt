@@ -1,0 +1,2226 @@
+﻿"""
+Lunar Image Registration & Warping Service
+Estimates perspective transformations (Homography) via RANSAC, prunes geometric outliers,
+and warps source temporal lunar images into the reference coordinate system.
+"""
+
+from typing import List, Tuple, Optional, Dict, Any
+import cv2
+import numpy as np
+
+
+class ImageRegistrationService:
+    """
+    Service responsible for robust RANSAC-based geometric alignment of temporal lunar images.
+    """
+
+    def __init__(self, ransac_reproj_thresh: float = 3.5, min_matches_required: int = 6):
+        self.ransac_reproj_thresh = ransac_reproj_thresh
+        self.min_matches_required = min_matches_required
+
+    def align_images(
+        self,
+        source_img: np.ndarray,
+        reference_img: np.ndarray,
+        src_keypoints: List[cv2.KeyPoint],
+        ref_keypoints: List[cv2.KeyPoint],
+        matches: List[cv2.DMatch]
+    ) -> Dict[str, Any]:
+        """
+        Calculates homography matrix and warps source image onto reference coordinate frame.
+
+        Parameters:
+            source_img: Input source image (can be color or grayscale).
+            reference_img: Reference target image (provides target dimensions).
+            src_keypoints: Keypoints detected on source image.
+            ref_keypoints: Keypoints detected on reference image.
+            matches: Filtered matches (e.g. from Lowe's ratio test).
+
+        Returns:
+            Dictionary containing:
+                - 'success': bool
+                - 'error_message': Optional[str]
+                - 'aligned_image': Optional[np.ndarray]
+                - 'homography_matrix': Optional[np.ndarray]
+                - 'inlier_mask': Optional[List[int]]
+                - 'inlier_matches': List[cv2.DMatch]
+                - 'inlier_count': int
+                - 'valid_overlap_mask': Optional[np.ndarray]
+        """
+        # Guard: Check minimum required matches
+        if len(matches) < self.min_matches_required:
+            return {
+                "success": False,
+                "error_message": (
+                    f"Insufficient reliable feature matches ({len(matches)}). "
+                    f"At least {self.min_matches_required} good matches are required for stable homography."
+                ),
+                "aligned_image": None,
+                "homography_matrix": None,
+                "inlier_mask": [],
+                "inlier_matches": [],
+                "inlier_count": 0,
+                "valid_overlap_mask": None,
+            }
+
+        # Extract 2D coordinates of matched points
+        try:
+            src_pts = np.float32([src_keypoints[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+            ref_pts = np.float32([ref_keypoints[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        except IndexError as e:
+            return {
+                "success": False,
+                "error_message": f"Keypoint index mismatch during coordinate extraction: {e}",
+                "aligned_image": None,
+                "homography_matrix": None,
+                "inlier_mask": [],
+                "inlier_matches": [],
+                "inlier_count": 0,
+                "valid_overlap_mask": None,
+            }
+
+        # Compute Homography via RANSAC
+        H, mask = cv2.findHomography(
+            src_pts,
+            ref_pts,
+            cv2.RANSAC,
+            self.ransac_reproj_thresh
+        )
+
+        if H is None or mask is None:
+            return {
+                "success": False,
+                "error_message": "RANSAC failed to estimate a valid Homography matrix.",
+                "aligned_image": None,
+                "homography_matrix": None,
+                "inlier_mask": [],
+                "inlier_matches": [],
+                "inlier_count": 0,
+                "valid_overlap_mask": None,
+            }
+
+        # Validate Homography numerical stability
+        det = np.linalg.det(H[:2, :2])
+        if abs(det) < 1e-4 or abs(det) > 1e4:
+            return {
+                "success": False,
+                "error_message": f"Homography matrix is degenerate or extremely distorted (determinant={det:.4f}).",
+                "aligned_image": None,
+                "homography_matrix": None,
+                "inlier_mask": [],
+                "inlier_matches": [],
+                "inlier_count": 0,
+                "valid_overlap_mask": None,
+            }
+
+        inlier_mask_list = mask.ravel().tolist()
+        inlier_matches = [matches[i] for i, val in enumerate(inlier_mask_list) if val == 1]
+        inlier_count = len(inlier_matches)
+
+        if inlier_count < 4:
+            return {
+                "success": False,
+                "error_message": f"Too few RANSAC geometric inliers ({inlier_count} < 4). Registration rejected.",
+                "aligned_image": None,
+                "homography_matrix": None,
+                "inlier_mask": inlier_mask_list,
+                "inlier_matches": inlier_matches,
+                "inlier_count": inlier_count,
+                "valid_overlap_mask": None,
+            }
+
+        # Warp source image to match reference image coordinate space
+        ref_h, ref_w = reference_img.shape[:2]
+        aligned_image = cv2.warpPerspective(
+            source_img,
+            H,
+            (ref_w, ref_h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
+
+        # Create binary mask of valid overlapping area (where source warped pixel exists)
+        src_h, src_w = source_img.shape[:2]
+        ones_mask = np.ones((src_h, src_w), dtype=np.uint8) * 255
+        warped_mask = cv2.warpPerspective(
+            ones_mask,
+            H,
+            (ref_w, ref_h),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
+        valid_overlap_mask = (warped_mask > 128).astype(np.uint8) * 255
+
+        return {
+            "success": True,
+            "error_message": None,
+            "aligned_image": aligned_image,
+            "homography_matrix": H,
+            "inlier_mask": inlier_mask_list,
+            "inlier_matches": inlier_matches,
+            "inlier_count": inlier_count,
+            "valid_overlap_mask": valid_overlap_mask,
+        }
+"""
+Lunar Feature Detection Service
+Extracts keypoints and descriptors from lunar surface imagery using SIFT
+with an automatic fallback to AKAZE if SIFT fails or detects insufficient keypoints.
+"""
+
+from typing import List, Tuple, Optional, Any
+import logging
+import cv2
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+class FeatureDetectionService:
+    """
+    Feature detection service supporting SIFT and AKAZE for lunar orbital imagery.
+    """
+
+    def __init__(self, min_features: int = 15, max_akaze_features: int = 3000):
+        self.min_features = min_features
+        self.max_akaze_features = max_akaze_features
+        self._sift = None
+        self._akaze = None
+
+        # Attempt to initialize SIFT
+        try:
+            self._sift = cv2.SIFT_create()
+        except Exception as e:
+            logger.warning(f"SIFT initialization failed ({e}). Will fallback to AKAZE.")
+
+        # Initialize AKAZE
+        try:
+            self._akaze = cv2.AKAZE_create()
+        except Exception as e:
+            logger.error(f"AKAZE initialization failed: {e}")
+
+    def detect_features(
+        self,
+        image: np.ndarray,
+        preferred_algorithm: str = "SIFT"
+    ) -> Tuple[List[cv2.KeyPoint], Optional[np.ndarray], str]:
+        """
+        Detects keypoints and computes descriptors on a lunar image.
+
+        Parameters:
+            image: 2D Grayscale or enhanced lunar image (uint8).
+            preferred_algorithm: 'SIFT' (default) or 'AKAZE'.
+
+        Returns:
+            Tuple of (keypoints, descriptors, algorithm_used)
+        """
+        if image is None or image.size == 0:
+            raise ValueError("Cannot detect features on an empty image.")
+
+        # Ensure image is single-channel uint8
+        if len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if image.dtype != np.uint8:
+            image = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.astype(np.uint8)
+
+        kps: List[cv2.KeyPoint] = []
+        descs: Optional[np.ndarray] = None
+        algo_used = preferred_algorithm.upper()
+
+        # 1. Try SIFT if requested and available
+        if algo_used == "SIFT" and self._sift is not None:
+            try:
+                kps, descs = self._sift.detectAndCompute(image, None)
+                if kps is not None and len(kps) >= self.min_features and descs is not None:
+                    return list(kps), descs, "SIFT"
+                logger.info(
+                    f"SIFT yielded only {len(kps) if kps is not None else 0} features (< {self.min_features}). Falling back to AKAZE."
+                )
+            except Exception as e:
+                logger.warning(f"SIFT detection raised an exception: {e}. Falling back to AKAZE.")
+
+        # 2. Fallback or direct execution for AKAZE
+        if self._akaze is not None:
+            try:
+                kps, descs = self._akaze.detectAndCompute(image, None)
+                if kps is not None and descs is not None:
+                    return list(kps), descs, "AKAZE"
+            except Exception as e:
+                logger.error(f"AKAZE detection raised an exception: {e}")
+
+        # Return empty result if detection completely failed
+        return [], None, "NONE"
+"""
+Feature Matching Service
+Matches descriptor vectors between source (temporal) and reference lunar images using BFMatcher
+and applies Lowe's ratio test to filter ambiguous correspondences.
+"""
+
+from typing import List, Tuple, Optional
+import cv2
+import numpy as np
+
+
+class FeatureMatchingService:
+    """
+    Service responsible for matching lunar keypoint descriptors using Brute-Force Matcher.
+    """
+
+    def __init__(self, sift_ratio_thresh: float = 0.75, akaze_ratio_thresh: float = 0.80):
+        self.sift_ratio_thresh = sift_ratio_thresh
+        self.akaze_ratio_thresh = akaze_ratio_thresh
+
+    def match_descriptors(
+        self,
+        desc_src: Optional[np.ndarray],
+        desc_ref: Optional[np.ndarray],
+        algorithm: str = "SIFT",
+        custom_ratio: Optional[float] = None
+    ) -> Tuple[List[cv2.DMatch], int]:
+        """
+        Computes 2-NN Brute Force matches between source and reference descriptors,
+        then filters them using Lowe's ratio test.
+
+        Parameters:
+            desc_src: Descriptors from source image.
+            desc_ref: Descriptors from reference image.
+            algorithm: 'SIFT' (uses NORM_L2) or 'AKAZE' (uses NORM_HAMMING).
+            custom_ratio: Optional override for ratio threshold.
+
+        Returns:
+            Tuple of (good_matches, total_raw_matches)
+        """
+        if desc_src is None or desc_ref is None:
+            return [], 0
+
+        if len(desc_src) < 2 or len(desc_ref) < 2:
+            return [], 0
+
+        algo_upper = algorithm.upper()
+        if algo_upper == "AKAZE" or algo_upper == "ORB" or desc_src.dtype == np.uint8:
+            norm_type = cv2.NORM_HAMMING
+            ratio_thresh = custom_ratio if custom_ratio is not None else self.akaze_ratio_thresh
+        else:
+            norm_type = cv2.NORM_L2
+            ratio_thresh = custom_ratio if custom_ratio is not None else self.sift_ratio_thresh
+
+        bf = cv2.BFMatcher(norm_type, crossCheck=False)
+
+        try:
+            # Find 2 nearest neighbors for each descriptor
+            raw_knn_matches = bf.knnMatch(desc_src, desc_ref, k=2)
+        except Exception as e:
+            # If datatype mismatch or internal error, attempt casting to float32
+            if norm_type == cv2.NORM_L2:
+                desc_src = desc_src.astype(np.float32)
+                desc_ref = desc_ref.astype(np.float32)
+                raw_knn_matches = bf.knnMatch(desc_src, desc_ref, k=2)
+            else:
+                return [], 0
+
+        good_matches: List[cv2.DMatch] = []
+        total_raw = len(raw_knn_matches)
+
+        # Apply Lowe's ratio test
+        for match_pair in raw_knn_matches:
+            if len(match_pair) == 2:
+                m, n = match_pair
+                # Condition: nearest neighbor distance must be significantly smaller than second nearest
+                if m.distance < ratio_thresh * n.distance:
+                    good_matches.append(m)
+            elif len(match_pair) == 1:
+                # If only 1 neighbor exists, accept cautiously if distance is small
+                good_matches.append(match_pair[0])
+
+        return good_matches, total_raw
+"""
+Quality & Alignment Metrics Service
+Calculates quantitative metrics including Root Mean Squared Error (RMSE),
+inlier count, inlier ratio, and registration confidence score.
+"""
+
+from typing import Dict, Any, Optional
+import cv2
+import numpy as np
+from skimage.metrics import structural_similarity as ssim
+
+
+class MetricsService:
+    """
+    Service responsible for computing quantitative registration quality metrics.
+    """
+
+    def calculate_registration_metrics(
+        self,
+        reference_img: np.ndarray,
+        aligned_img: np.ndarray,
+        inlier_count: int,
+        total_good_matches: int,
+        valid_overlap_mask: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculates RMSE, inlier ratio, and confidence score for the image registration.
+
+        Parameters:
+            reference_img: Reference image (uint8 grayscale or BGR).
+            aligned_img: Warped/aligned source image.
+            inlier_count: Count of RANSAC inliers.
+            total_good_matches: Total matches before RANSAC.
+            valid_overlap_mask: 2D uint8 mask representing the valid transformed area.
+
+        Returns:
+            Dictionary with metrics:
+                - rmse: float
+                - inlier_count: int
+                - total_good_matches: int
+                - inlier_ratio: float
+                - confidence_score: float (0.0 to 1.0)
+                - confidence_percentage: float (0.0% to 100.0%)
+                - overlap_pixel_count: int
+                - ssim: float
+        """
+        # Convert to single channel grayscale if necessary
+        ref_gray = reference_img.copy()
+        if len(ref_gray.shape) == 3:
+            ref_gray = cv2.cvtColor(ref_gray, cv2.COLOR_BGR2GRAY)
+
+        aln_gray = aligned_img.copy()
+        if len(aln_gray.shape) == 3:
+            aln_gray = cv2.cvtColor(aln_gray, cv2.COLOR_BGR2GRAY)
+
+        # Determine valid overlapping mask
+        if valid_overlap_mask is None:
+            # Fallback: non-zero pixels in aligned image
+            mask = (aln_gray > 0).astype(np.uint8) * 255
+        else:
+            mask = valid_overlap_mask
+
+        overlap_pixels = int(np.count_nonzero(mask > 0))
+
+        # Calculate RMSE over the valid overlapping region
+        if overlap_pixels > 100:
+            ref_overlap = ref_gray[mask > 0].astype(np.float64)
+            aln_overlap = aln_gray[mask > 0].astype(np.float64)
+
+            mse = float(np.mean((ref_overlap - aln_overlap) ** 2))
+            rmse = float(np.sqrt(mse))
+
+            # Compute SSIM on overlapping bounding box
+            try:
+                score_ssim, _ = ssim(ref_gray, aln_gray, full=True)
+                score_ssim = max(0.0, float(score_ssim))
+            except Exception:
+                score_ssim = 0.0
+        else:
+            mse = 9999.0
+            rmse = 99.99
+            score_ssim = 0.0
+
+        # Calculate Inlier Ratio
+        inlier_ratio = float(inlier_count / max(total_good_matches, 1))
+
+        # Confidence Score Formulation
+        # Factors:
+        # 1. Match count weight (40%): Saturated at 40 inliers
+        # 2. Inlier ratio weight (35%): Linear ratio (0.0 to 1.0)
+        # 3. RMSE alignment quality weight (25%): Normalized (RMSE < 15 is excellent, RMSE > 60 is poor)
+        match_score = min(1.0, inlier_count / 40.0)
+        ratio_score = min(1.0, inlier_ratio)
+        rmse_score = max(0.0, min(1.0, 1.0 - (rmse / 60.0)))
+
+        confidence = (match_score * 0.40) + (ratio_score * 0.35) + (rmse_score * 0.25)
+        confidence = float(np.clip(confidence, 0.0, 1.0))
+
+        return {
+            "rmse": round(rmse, 3),
+            "mse": round(mse, 3),
+            "inlier_count": int(inlier_count),
+            "total_good_matches": int(total_good_matches),
+            "inlier_ratio": round(inlier_ratio, 4),
+            "registration_confidence_score": round(confidence, 4),
+            "registration_confidence_percentage": round(confidence * 100.0, 1),
+            "overlap_pixel_count": overlap_pixels,
+            "ssim": round(score_ssim, 4),
+        }
+"""
+LunarVision Real-Data Benchmark Service (Phase 1)
+Evaluates registration performance, computes metrics, evaluates ground-truth accuracy,
+and aggregates statistical summaries over illumination and scale buckets.
+"""
+
+import os
+import re
+import csv
+import json
+import time
+import math
+import logging
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple, Union
+
+import cv2
+import numpy as np
+
+from backend import config
+from backend.services.preprocessing import PreprocessingService
+from backend.services.feature_detection import FeatureDetectionService
+from backend.services.matching import FeatureMatchingService
+from backend.services.registration import ImageRegistrationService
+from backend.services.metrics import MetricsService
+from backend.services.sun_angle_service import SunAngleService
+
+logger = logging.getLogger(__name__)
+
+
+class BenchmarkService:
+    """
+    Automated benchmark evaluation service for planetary image correspondence.
+    Executes registration pipelines across manifests, compares against ground truth,
+    and produces structured results.csv, summary.json, and summary.md outputs.
+    """
+
+    def __init__(
+        self,
+        seed: int = config.DEFAULT_RANDOM_SEED,
+        success_error_thresh: float = config.BENCHMARK_SUCCESS_ERROR_THRESH,
+        max_dimension: int = config.MAX_IMAGE_DIMENSION
+    ):
+        self.seed = seed
+        self.success_error_thresh = success_error_thresh
+        self.max_dimension = max_dimension
+
+        # Seed global RNG for deterministic reproducibility
+        np.random.seed(self.seed)
+        cv2.setRNGSeed(self.seed)
+
+        self.preprocess_svc = PreprocessingService(
+            clip_limit=config.CLAHE_CLIP_LIMIT,
+            tile_grid_size=config.CLAHE_TILE_GRID_SIZE,
+            max_dimension=self.max_dimension
+        )
+        self.feature_svc = FeatureDetectionService(
+            min_features=config.MIN_FEATURES_ROUTE,
+            max_akaze_features=config.MAX_AKAZE_FEATURES
+        )
+        self.matching_svc = FeatureMatchingService(
+            sift_ratio_thresh=config.SIFT_RATIO_THRESH,
+            akaze_ratio_thresh=config.AKAZE_RATIO_THRESH
+        )
+        self.registration_svc = ImageRegistrationService(
+            ransac_reproj_thresh=config.RANSAC_REPROJ_THRESH,
+            min_matches_required=config.MIN_MATCHES_REQUIRED
+        )
+        self.metrics_svc = MetricsService()
+        self.sun_angle_svc = SunAngleService()
+
+    @staticmethod
+    def extract_pds_metadata(file_bytes: bytes, filename: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Parses PDS label text from the initial 64 KB of file bytes.
+        Safely extracts sensor/instrument name, solar angles, and pixel resolution.
+        Never raises exceptions on missing fields; returns null/None for unavailable items.
+        """
+        meta = {
+            "sensor": None,
+            "incidence_angle": None,
+            "sun_elevation": None,
+            "sun_azimuth": None,
+            "pixel_resolution": None,
+        }
+        if not file_bytes:
+            return meta
+
+        try:
+            header_chunk = file_bytes[:65536].decode("latin-1", errors="ignore")
+
+            # 1. Sensor / Instrument
+            sensor_match = re.search(
+                r'\b(?:INSTRUMENT_NAME|INSTRUMENT_ID|SENSOR_NAME|SENSOR|INSTRUMENT_HOST_NAME)\s*=\s*["\']?([^"\';\r\n]+)',
+                header_chunk,
+                re.IGNORECASE
+            )
+            if sensor_match:
+                meta["sensor"] = sensor_match.group(1).strip()
+
+            # 2. Solar angles
+            inc_match = re.search(
+                r'\b(?:INCIDENCE_ANGLE|SOLAR_INCIDENCE_ANGLE)\s*=\s*([0-9.]+)',
+                header_chunk,
+                re.IGNORECASE
+            )
+            if inc_match:
+                meta["incidence_angle"] = float(inc_match.group(1))
+
+            elev_match = re.search(
+                r'\b(?:SUN_ELEVATION|SOLAR_ELEVATION|SOLAR_ALTITUDE)\s*=\s*([0-9.]+)',
+                header_chunk,
+                re.IGNORECASE
+            )
+            if elev_match:
+                meta["sun_elevation"] = float(elev_match.group(1))
+
+            az_match = re.search(
+                r'\b(?:SUN_AZIMUTH|SOLAR_AZIMUTH)\s*=\s*([0-9.]+)',
+                header_chunk,
+                re.IGNORECASE
+            )
+            if az_match:
+                meta["sun_azimuth"] = float(az_match.group(1))
+
+            # 3. Pixel resolution / Scale
+            res_match = re.search(
+                r'\b(?:MAP_SCALE|PIXEL_RESOLUTION|SPATIAL_RESOLUTION|SAMPLING_PARAMETER|RESOLUTION)\s*=\s*([0-9.]+)',
+                header_chunk,
+                re.IGNORECASE
+            )
+            if res_match:
+                meta["pixel_resolution"] = float(res_match.group(1))
+
+        except Exception as e:
+            logger.debug(f"PDS metadata extraction exception: {e}")
+
+        return meta
+
+    @staticmethod
+    def calculate_scale_and_downscale_factors(
+        orig_shape: Tuple[int, int],
+        max_dim: int = config.MAX_IMAGE_DIMENSION
+    ) -> float:
+        """
+        Determines the downscale factor applied by PreprocessingService.load_image_from_bytes.
+        Returns the scale multiplier (< 1.0 if downscaled, 1.0 otherwise).
+        """
+        h, w = orig_shape[:2]
+        max_len = max(h, w)
+        if max_len > max_dim:
+            return float(max_dim) / float(max_len)
+        return 1.0
+
+    @staticmethod
+    def compute_inlier_reprojection_error(
+        H: Optional[np.ndarray],
+        src_kps: List[cv2.KeyPoint],
+        ref_kps: List[cv2.KeyPoint],
+        inlier_matches: List[cv2.DMatch]
+    ) -> Optional[float]:
+        """
+        Computes the mean Euclidean reprojection error of inlier keypoint correspondences.
+        """
+        if H is None or not inlier_matches:
+            return None
+
+        try:
+            src_pts = np.float32([src_kps[m.queryIdx].pt for m in inlier_matches]).reshape(-1, 1, 2)
+            ref_pts = np.float32([ref_kps[m.trainIdx].pt for m in inlier_matches]).reshape(-1, 1, 2)
+
+            # Transform source points via homography
+            transformed_pts = cv2.perspectiveTransform(src_pts, H)
+
+            # Euclidean distances
+            diff = transformed_pts - ref_pts
+            dist = np.sqrt(diff[:, 0, 0] ** 2 + diff[:, 0, 1] ** 2)
+            return float(np.mean(dist))
+        except Exception:
+            return None
+
+    @staticmethod
+    def evaluate_ground_truth(
+        H: Optional[np.ndarray],
+        gt_points: List[Dict[str, List[float]]],
+        scale_src: float,
+        scale_ref: float
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Warps source ground-truth points via homography and compares against reference points.
+        Accounts for downscale factor applied by preprocessing.
+        Returns: (mean_error, median_error) in downscaled reference pixel coordinates.
+        """
+        if H is None or not gt_points:
+            return None, None
+
+        errors: List[float] = []
+        for pair in gt_points:
+            src_pt = pair.get("src")
+            ref_pt = pair.get("ref")
+            if src_pt is None or ref_pt is None or len(src_pt) < 2 or len(ref_pt) < 2:
+                continue
+
+            # Scale original coordinates by preprocessing scale factor
+            sx, sy = float(src_pt[0]) * scale_src, float(src_pt[1]) * scale_src
+            rx, ry = float(ref_pt[0]) * scale_ref, float(ref_pt[1]) * scale_ref
+
+            # Homogeneous transformation
+            pt_homog = np.array([sx, sy, 1.0], dtype=np.float64)
+            warped = H @ pt_homog
+            if abs(warped[2]) < 1e-7:
+                continue
+            pred_rx = warped[0] / warped[2]
+            pred_ry = warped[1] / warped[2]
+
+            err = math.sqrt((pred_rx - rx) ** 2 + (pred_ry - ry) ** 2)
+            errors.append(err)
+
+        if not errors:
+            return None, None
+
+        return float(np.mean(errors)), float(np.median(errors))
+
+    def evaluate_pair(
+        self,
+        pair_record: Dict[str, Any],
+        strategy: str = config.DEFAULT_BENCHMARK_STRATEGY,
+        base_dir: Optional[Path] = None
+    ) -> Dict[str, Any]:
+        """
+        Evaluates a single pair of lunar images according to the benchmark specification.
+        Measures individual phase timings, extracts metadata, computes metrics, and validates GT.
+        Catches all errors to ensure the benchmark never aborts prematurely.
+        """
+        # Enforce strategy limitation for Phase 1
+        if strategy != "standard":
+            raise NotImplementedError(
+                f"Strategy '{strategy}' is not yet implemented (scheduled for Phase 2/later phases). "
+                f"Only 'standard' is supported in Phase 1."
+            )
+
+        pair_id = str(pair_record.get("pair_id", "unknown_pair"))
+        src_path_str = str(pair_record.get("source_path", ""))
+        ref_path_str = str(pair_record.get("reference_path", ""))
+        gt_path_str = str(pair_record.get("ground_truth_path", "") or "")
+
+        # Resolve paths relative to base_dir if given
+        src_path = Path(src_path_str) if not base_dir else (base_dir / src_path_str)
+        ref_path = Path(ref_path_str) if not base_dir else (base_dir / ref_path_str)
+        gt_path = (Path(gt_path_str) if not base_dir else (base_dir / gt_path_str)) if gt_path_str else None
+
+        result_row: Dict[str, Any] = {
+            "pair_id": pair_id,
+            "source_path": src_path_str,
+            "reference_path": ref_path_str,
+            "ground_truth_path": gt_path_str,
+            "source_sensor": None,
+            "reference_sensor": None,
+            "source_sun_incidence": None,
+            "reference_sun_incidence": None,
+            "source_sun_elevation": None,
+            "reference_sun_elevation": None,
+            "source_resolution": None,
+            "reference_resolution": None,
+            "sun_angle_gap": None,
+            "scale_ratio": None,
+            "strategy": strategy,
+            "source_keypoints": 0,
+            "reference_keypoints": 0,
+            "good_matches": 0,
+            "inliers": 0,
+            "inlier_ratio": 0.0,
+            "mean_reprojection_error": None,
+            "confidence": 0.0,
+            "confidence_percentage": 0.0,
+            "verdict": "no_match",
+            "mean_error": None,
+            "median_error": None,
+            "success": False,
+            "load_time_ms": 0.0,
+            "preprocess_time_ms": 0.0,
+            "feature_detection_time_ms": 0.0,
+            "matching_time_ms": 0.0,
+            "ransac_time_ms": 0.0,
+            "total_time_ms": 0.0,
+            "error_message": None,
+        }
+
+        total_start = time.perf_counter()
+
+        try:
+            # 1. Load Bytes and Timing
+            t0 = time.perf_counter()
+            if not src_path.exists():
+                raise FileNotFoundError(f"Source image not found: {src_path}")
+            if not ref_path.exists():
+                raise FileNotFoundError(f"Reference image not found: {ref_path}")
+
+            with open(src_path, "rb") as f:
+                src_bytes = f.read()
+            with open(ref_path, "rb") as f:
+                ref_bytes = f.read()
+
+            t1 = time.perf_counter()
+            result_row["load_time_ms"] = round((t1 - t0) * 1000.0, 2)
+
+            # Extract PDS / Solar metadata
+            src_pds = self.extract_pds_metadata(src_bytes, src_path.name)
+            ref_pds = self.extract_pds_metadata(ref_bytes, ref_path.name)
+            result_row["source_sensor"] = src_pds["sensor"]
+            result_row["reference_sensor"] = ref_pds["sensor"]
+            result_row["source_sun_incidence"] = src_pds["incidence_angle"]
+            result_row["reference_sun_incidence"] = ref_pds["incidence_angle"]
+            result_row["source_sun_elevation"] = src_pds["sun_elevation"]
+            result_row["reference_sun_elevation"] = ref_pds["sun_elevation"]
+            result_row["source_resolution"] = src_pds["pixel_resolution"]
+            result_row["reference_resolution"] = ref_pds["pixel_resolution"]
+
+            # Calculate sun_angle_gap
+            if src_pds["incidence_angle"] is not None and ref_pds["incidence_angle"] is not None:
+                result_row["sun_angle_gap"] = round(abs(src_pds["incidence_angle"] - ref_pds["incidence_angle"]), 2)
+            elif src_pds["sun_elevation"] is not None and ref_pds["sun_elevation"] is not None:
+                result_row["sun_angle_gap"] = round(abs(src_pds["sun_elevation"] - ref_pds["sun_elevation"]), 2)
+
+            # Calculate scale_ratio from PDS resolutions if present
+            if (
+                src_pds["pixel_resolution"] is not None
+                and ref_pds["pixel_resolution"] is not None
+                and src_pds["pixel_resolution"] > 0
+                and ref_pds["pixel_resolution"] > 0
+            ):
+                s_res, r_res = src_pds["pixel_resolution"], ref_pds["pixel_resolution"]
+                result_row["scale_ratio"] = round(max(s_res, r_res) / min(s_res, r_res), 2)
+
+            # 2. Preprocessing and Downscaling Check
+            t1 = time.perf_counter()
+            # Decode raw arrays first to detect original resolution
+            src_raw = self.preprocess_svc.load_image_from_bytes(src_bytes, filename=src_path.name)
+            ref_raw = self.preprocess_svc.load_image_from_bytes(ref_bytes, filename=ref_path.name)
+
+            scale_src = self.calculate_scale_and_downscale_factors(src_raw.shape)
+            scale_ref = self.calculate_scale_and_downscale_factors(ref_raw.shape)
+
+            src_prep = self.preprocess_svc.preprocess_pipeline(src_raw)
+            ref_prep = self.preprocess_svc.preprocess_pipeline(ref_raw)
+            t2 = time.perf_counter()
+            result_row["preprocess_time_ms"] = round((t2 - t1) * 1000.0, 2)
+
+            # 3. Feature Detection
+            t2 = time.perf_counter()
+            src_kps, src_descs, src_algo = self.feature_svc.detect_features(src_prep["enhanced"], preferred_algorithm="SIFT")
+            ref_kps, ref_descs, ref_algo = self.feature_svc.detect_features(ref_prep["enhanced"], preferred_algorithm="SIFT")
+            t3 = time.perf_counter()
+            result_row["feature_detection_time_ms"] = round((t3 - t2) * 1000.0, 2)
+            result_row["source_keypoints"] = len(src_kps)
+            result_row["reference_keypoints"] = len(ref_kps)
+
+            if len(src_kps) < config.MIN_MATCHES_REQUIRED or len(ref_kps) < config.MIN_MATCHES_REQUIRED or src_descs is None or ref_descs is None:
+                result_row["verdict"] = "no_match"
+                result_row["error_message"] = "Insufficient keypoints detected for correspondence"
+                result_row["total_time_ms"] = round((time.perf_counter() - total_start) * 1000.0, 2)
+                return result_row
+
+            # 4. Feature Matching
+            t3 = time.perf_counter()
+            algo_for_matching = src_algo if src_algo == ref_algo else "SIFT"
+            good_matches, total_raw = self.matching_svc.match_descriptors(src_descs, ref_descs, algorithm=algo_for_matching)
+            t4 = time.perf_counter()
+            result_row["matching_time_ms"] = round((t4 - t3) * 1000.0, 2)
+            result_row["good_matches"] = len(good_matches)
+
+            if len(good_matches) < config.MIN_MATCHES_REQUIRED:
+                result_row["verdict"] = "no_match"
+                result_row["error_message"] = f"Too few good matches ({len(good_matches)} < {config.MIN_MATCHES_REQUIRED})"
+                result_row["total_time_ms"] = round((time.perf_counter() - total_start) * 1000.0, 2)
+                return result_row
+
+            # 5. RANSAC Homography & Metrics
+            t4 = time.perf_counter()
+            reg_res = self.registration_svc.align_images(
+                source_img=src_prep["original_color"],
+                reference_img=ref_prep["original_color"],
+                src_keypoints=src_kps,
+                ref_keypoints=ref_kps,
+                matches=good_matches
+            )
+            t5 = time.perf_counter()
+            result_row["ransac_time_ms"] = round((t5 - t4) * 1000.0, 2)
+
+            H = reg_res["homography_matrix"]
+            inliers = reg_res["inlier_count"]
+            result_row["inliers"] = inliers
+            result_row["inlier_ratio"] = round(float(inliers) / float(max(len(good_matches), 1)), 4)
+
+            # Inlier mean reprojection error
+            inlier_reproj = self.compute_inlier_reprojection_error(H, src_kps, ref_kps, reg_res.get("inlier_matches", []))
+            result_row["mean_reprojection_error"] = round(inlier_reproj, 3) if inlier_reproj is not None else None
+
+            if not reg_res["success"] or H is None:
+                result_row["verdict"] = "no_match"
+                result_row["error_message"] = reg_res.get("error_message") or "RANSAC registration failed"
+                result_row["total_time_ms"] = round((time.perf_counter() - total_start) * 1000.0, 2)
+                return result_row
+
+            # Calculate registration metrics and confidence score
+            metrics = self.metrics_svc.calculate_registration_metrics(
+                reference_img=ref_prep["gray"],
+                aligned_img=reg_res["aligned_image"],
+                inlier_count=inliers,
+                total_good_matches=len(good_matches),
+                valid_overlap_mask=reg_res.get("valid_overlap_mask")
+            )
+            result_row["confidence"] = metrics["registration_confidence_score"]
+            result_row["confidence_percentage"] = metrics["registration_confidence_percentage"]
+
+            # Rejection Gate
+            if metrics["registration_confidence_score"] < config.CONFIDENCE_THRESHOLD:
+                result_row["verdict"] = "no_match"
+                result_row["error_message"] = f"Confidence score ({metrics['registration_confidence_percentage']}%) below gate threshold"
+            else:
+                result_row["verdict"] = "match"
+
+            # 6. Ground-Truth Validation (if provided)
+            gt_points = None
+            if gt_path and gt_path.exists():
+                try:
+                    with open(gt_path, "r", encoding="utf-8") as f:
+                        gt_points = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed to read ground truth JSON at {gt_path}: {e}")
+
+            if gt_points and isinstance(gt_points, list):
+                mean_err, med_err = self.evaluate_ground_truth(H, gt_points, scale_src, scale_ref)
+                result_row["mean_error"] = round(mean_err, 3) if mean_err is not None else None
+                result_row["median_error"] = round(med_err, 3) if med_err is not None else None
+
+                # Ground Truth Success Criterion: verdict == "match" AND mean_error < 3 px
+                if (
+                    result_row["verdict"] == "match"
+                    and mean_err is not None
+                    and mean_err < self.success_error_thresh
+                ):
+                    result_row["success"] = True
+                else:
+                    result_row["success"] = False
+            else:
+                # If ground truth was not provided, success is defined by registration verdict
+                result_row["success"] = (result_row["verdict"] == "match")
+
+        except Exception as e:
+            logger.exception(f"Unhandled exception during benchmark pair evaluation for {pair_id}: {e}")
+            result_row["verdict"] = "error"
+            result_row["error_message"] = str(e)
+            result_row["success"] = False
+
+        result_row["total_time_ms"] = round((time.perf_counter() - total_start) * 1000.0, 2)
+        return result_row
+
+    @staticmethod
+    def get_sun_angle_bucket(gap: Optional[float]) -> str:
+        """Determines the sun-angle gap bucket category."""
+        if gap is None or math.isnan(gap):
+            return "unknown"
+        if gap < 10.0:
+            return "<10"
+        if gap < 30.0:
+            return "10-30"
+        if gap <= 60.0:
+            return "30-60"
+        return ">60"
+
+    @staticmethod
+    def get_scale_ratio_bucket(scale: Optional[float]) -> str:
+        """Determines the scale ratio bucket category."""
+        if scale is None or math.isnan(scale):
+            return "unknown"
+        if scale < 2.0:
+            return "<2"
+        if scale < 5.0:
+            return "2-5"
+        if scale <= 20.0:
+            return "5-20"
+        return ">20"
+
+    def compute_summary(
+        self,
+        results: List[Dict[str, Any]],
+        strategy: str = config.DEFAULT_BENCHMARK_STRATEGY
+    ) -> Dict[str, Any]:
+        """
+        Aggregates benchmark results into summary statistics and bucket evaluations.
+        """
+        total = len(results)
+        successes = sum(1 for r in results if r.get("success") is True)
+        success_rate = round(successes / total, 4) if total > 0 else 0.0
+
+        gt_errors = [r["mean_error"] for r in results if r.get("mean_error") is not None]
+        mean_gt_err = round(float(np.mean(gt_errors)), 3) if gt_errors else None
+        med_gt_err = round(float(np.median(gt_errors)), 3) if gt_errors else None
+
+        runtimes = [r["total_time_ms"] for r in results if r.get("total_time_ms") is not None]
+        mean_runtime = round(float(np.mean(runtimes)), 2) if runtimes else 0.0
+        med_runtime = round(float(np.median(runtimes)), 2) if runtimes else 0.0
+
+        # Initialize Buckets
+        sun_bucket_keys = ["<10", "10-30", "30-60", ">60", "unknown"]
+        scale_bucket_keys = ["<2", "2-5", "5-20", ">20", "unknown"]
+
+        sun_buckets_data: Dict[str, List[Dict[str, Any]]] = {k: [] for k in sun_bucket_keys}
+        scale_buckets_data: Dict[str, List[Dict[str, Any]]] = {k: [] for k in scale_bucket_keys}
+
+        for r in results:
+            sb = self.get_sun_angle_bucket(r.get("sun_angle_gap"))
+            sun_buckets_data[sb].append(r)
+
+            scb = self.get_scale_ratio_bucket(r.get("scale_ratio"))
+            scale_buckets_data[scb].append(r)
+
+        def aggregate_bucket(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+            count = len(items)
+            if count == 0:
+                return {
+                    "count": 0,
+                    "success_rate": 0.0,
+                    "mean_error": None,
+                    "median_runtime": 0.0
+                }
+            succ = sum(1 for x in items if x.get("success") is True)
+            errs = [x["mean_error"] for x in items if x.get("mean_error") is not None]
+            m_err = round(float(np.mean(errs)), 3) if errs else None
+            rts = [x["total_time_ms"] for x in items if x.get("total_time_ms") is not None]
+            m_rt = round(float(np.median(rts)), 2) if rts else 0.0
+            return {
+                "count": count,
+                "success_rate": round(succ / count, 4),
+                "mean_error": m_err,
+                "median_runtime": m_rt
+            }
+
+        sun_angle_summary = {k: aggregate_bucket(sun_buckets_data[k]) for k in sun_bucket_keys}
+        scale_ratio_summary = {k: aggregate_bucket(scale_buckets_data[k]) for k in scale_bucket_keys}
+
+        return {
+            "strategy": strategy,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "total_pairs": total,
+            "successful_pairs": successes,
+            "failed_pairs": total - successes,
+            "success_rate": success_rate,
+            "mean_ground_truth_error": mean_gt_err,
+            "median_ground_truth_error": med_gt_err,
+            "mean_runtime_ms": mean_runtime,
+            "median_runtime_ms": med_runtime,
+            "sun_angle_gap_buckets": sun_angle_summary,
+            "scale_ratio_buckets": scale_ratio_summary
+        }
+
+    @staticmethod
+    def generate_summary_markdown(summary: Dict[str, Any]) -> str:
+        """
+        Formats the benchmark summary into a GitHub-flavored Markdown report.
+        """
+        lines = [
+            "# LunarVision Benchmark Execution Report",
+            "",
+            f"- **Execution Timestamp:** {summary.get('timestamp')}",
+            f"- **Evaluation Strategy:** `{summary.get('strategy')}`",
+            f"- **Total Image Pairs:** {summary.get('total_pairs')}",
+            f"- **Successful Pairs:** {summary.get('successful_pairs')} / {summary.get('total_pairs')} ({summary.get('success_rate', 0.0)*100:.1f}%)",
+            f"- **Mean GT Pixel Error:** {summary.get('mean_ground_truth_error') or 'N/A'} px",
+            f"- **Median GT Pixel Error:** {summary.get('median_ground_truth_error') or 'N/A'} px",
+            f"- **Median Runtime:** {summary.get('median_runtime_ms')} ms",
+            "",
+            "## Sun-Angle Gap Breakdown",
+            "",
+            "| Sun-Angle Gap (deg) | Count | Success Rate | Mean Error (px) | Median Runtime (ms) |",
+            "| :--- | :--- | :--- | :--- | :--- |"
+        ]
+
+        for bucket, data in summary.get("sun_angle_gap_buckets", {}).items():
+            err_str = f"{data['mean_error']:.3f}" if data['mean_error'] is not None else "N/A"
+            lines.append(
+                f"| `{bucket}` | {data['count']} | {data['success_rate']*100:.1f}% | {err_str} | {data['median_runtime']} |"
+            )
+
+        lines.extend([
+            "",
+            "## Scale Ratio Breakdown",
+            "",
+            "| Scale Ratio | Count | Success Rate | Mean Error (px) | Median Runtime (ms) |",
+            "| :--- | :--- | :--- | :--- | :--- |"
+        ])
+
+        for bucket, data in summary.get("scale_ratio_buckets", {}).items():
+            err_str = f"{data['mean_error']:.3f}" if data['mean_error'] is not None else "N/A"
+            lines.append(
+                f"| `{bucket}` | {data['count']} | {data['success_rate']*100:.1f}% | {err_str} | {data['median_runtime']} |"
+            )
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def run_benchmark(
+        self,
+        manifest_path: Union[str, Path],
+        output_dir: Union[str, Path] = config.DEFAULT_BENCHMARK_OUTPUT_DIR,
+        strategy: str = config.DEFAULT_BENCHMARK_STRATEGY,
+        norm_mode: str = config.DEFAULT_BENCHMARK_NORM_MODE
+    ) -> Dict[str, Any]:
+        """
+        Runs the complete benchmark suite on an input manifest CSV.
+        Produces results.csv, summary.json, and summary.md in the specified output directory.
+        """
+        # Enforce strategy limitation for Phase 1
+        if strategy != "standard":
+            raise NotImplementedError(
+                f"Strategy '{strategy}' is not yet implemented (scheduled for Phase 2/later phases). "
+                f"Only 'standard' is supported in Phase 1."
+            )
+
+        manifest_file = Path(manifest_path)
+        if not manifest_file.exists():
+            raise FileNotFoundError(f"Manifest CSV not found: {manifest_file}")
+
+        out_path = Path(output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        manifest_base = manifest_file.parent
+
+        # Read manifest CSV
+        pairs: List[Dict[str, Any]] = []
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+
+        if not rows:
+            raise ValueError(f"Manifest file is empty: {manifest_file}")
+
+        # Check for header
+        header = [c.strip().lower() for c in rows[0]]
+        start_idx = 0
+        if "pair_id" in header or "source_path" in header:
+            start_idx = 1
+            col_pair = header.index("pair_id") if "pair_id" in header else 0
+            col_src = header.index("source_path") if "source_path" in header else 1
+            col_ref = header.index("reference_path") if "reference_path" in header else 2
+            col_gt = header.index("ground_truth_path") if "ground_truth_path" in header else -1
+        else:
+            col_pair, col_src, col_ref, col_gt = 0, 1, 2, 3
+
+        for i, row in enumerate(rows[start_idx:], start=start_idx):
+            if not row or not any(row):
+                continue
+            pair_id = row[col_pair].strip() if col_pair < len(row) else f"pair_{i}"
+            src_p = row[col_src].strip() if col_src < len(row) else ""
+            ref_p = row[col_ref].strip() if col_ref < len(row) else ""
+            gt_p = row[col_gt].strip() if 0 <= col_gt < len(row) else ""
+            pairs.append({
+                "pair_id": pair_id,
+                "source_path": src_p,
+                "reference_path": ref_p,
+                "ground_truth_path": gt_p,
+            })
+
+        logger.info(f"Loaded {len(pairs)} benchmark image pairs from {manifest_file}")
+
+        # Process each pair
+        results: List[Dict[str, Any]] = []
+        for pair_rec in pairs:
+            res = self.evaluate_pair(pair_rec, strategy=strategy, base_dir=manifest_base)
+            results.append(res)
+
+        # Compute summary
+        summary = self.compute_summary(results, strategy=strategy)
+
+        # Write results.csv
+        csv_file = out_path / "results.csv"
+        csv_columns = [
+            "pair_id", "source_path", "reference_path", "ground_truth_path",
+            "source_sensor", "reference_sensor", "source_sun_incidence", "reference_sun_incidence",
+            "source_sun_elevation", "reference_sun_elevation", "source_resolution", "reference_resolution",
+            "sun_angle_gap", "scale_ratio", "strategy", "source_keypoints", "reference_keypoints",
+            "good_matches", "inliers", "inlier_ratio", "mean_reprojection_error",
+            "confidence", "confidence_percentage", "verdict", "mean_error", "median_error",
+            "success", "load_time_ms", "preprocess_time_ms", "feature_detection_time_ms",
+            "matching_time_ms", "ransac_time_ms", "total_time_ms", "error_message"
+        ]
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=csv_columns)
+            writer.writeheader()
+            for r in results:
+                writer.writerow({col: r.get(col) for col in csv_columns})
+
+        # Write summary.json
+        json_file = out_path / "summary.json"
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
+        # Write summary.md
+        md_file = out_path / "summary.md"
+        md_content = self.generate_summary_markdown(summary)
+        with open(md_file, "w", encoding="utf-8") as f:
+            f.write(md_content)
+
+        logger.info(f"Benchmark finished. Results saved to {out_path}")
+        return summary
+"""
+API Routes for LunarVision Benchmark Reporting (Phase 1)
+Exposes endpoints to query benchmark execution summaries.
+"""
+
+import json
+from pathlib import Path
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException
+
+from backend import config
+
+router = APIRouter()
+
+
+@router.get("/summary")
+async def get_benchmark_summary() -> Dict[str, Any]:
+    """
+    Returns the latest benchmark summary JSON.
+    Searches standard output directories for summary.json.
+    """
+    candidate_locations = [
+        config.DEFAULT_RESULTS_DIR / "summary.json",
+        config.PROJECT_ROOT / "results" / "summary.json",
+        Path("results") / "summary.json",
+        config.OUTPUTS_DIR / "summary.json",
+    ]
+
+    for candidate in candidate_locations:
+        if candidate.exists():
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to read benchmark summary file: {e}"
+                )
+
+    raise HTTPException(
+        status_code=404,
+        detail="No benchmark summary found. Run the benchmark to generate summary.json."
+    )
+"""
+Unit and Integration Tests for LunarVision Benchmark Service (Phase 1)
+Verifies:
+1. Benchmark evaluation on 3 synthetic pairs:
+   - Pair 1: Identical images -> success
+   - Pair 2: Rotated + scaled images -> success
+   - Pair 3: Unrelated images -> no_match
+2. Deterministic reproducibility across repeated benchmark runs
+3. Error tolerance (bad pair does not abort benchmark execution)
+4. Rejection of un-implemented strategies in Phase 1 (normalized, crater, auto)
+5. GET /api/benchmark/summary endpoint reporting
+"""
+
+import sys
+import csv
+import json
+import shutil
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+# Ensure root workspace is on sys.path
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
+from backend import config
+from backend.main import app
+from backend.services.benchmark import BenchmarkService
+
+
+def create_synthetic_terrain(width: int = 350, height: int = 350, seed: int = 42) -> np.ndarray:
+    """
+    Generates a deterministic synthetic lunar terrain image with distinct crater depressions and rims.
+    """
+    rng = np.random.RandomState(seed)
+    surface = rng.normal(120, 20, (height, width)).astype(np.float32)
+    surface = cv2.GaussianBlur(surface, (11, 11), 3.0)
+
+    # Add primary crater features with rims and shading
+    craters = [
+        (100, 100, 30, -50, 40),
+        (250, 200, 40, -60, 50),
+        (180, 260, 25, -40, 35),
+        (270, 90, 20, -35, 25),
+        (80, 240, 28, -45, 35),
+        (190, 150, 18, -30, 25),
+    ]
+
+    for cx, cy, r, depth, rim in craters:
+        y, x = np.ogrid[:height, :width]
+        dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+        crater_mask = dist <= r
+        sun_gradient = ((x - cx) + (y - cy)) / float(max(r, 1))
+        surface[crater_mask] += depth * (1.0 - dist[crater_mask] / r) + (sun_gradient[crater_mask] * 15.0)
+
+        rim_mask = (dist > (r - 4)) & (dist <= (r + 4))
+        surface[rim_mask] += rim * (1.0 - abs(dist[rim_mask] - r) / 4.0)
+
+    norm_surface = cv2.normalize(surface, None, 10, 240, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    return cv2.cvtColor(norm_surface, cv2.COLOR_GRAY2BGR)
+
+
+@pytest.fixture
+def synthetic_benchmark_dataset(tmp_path: Path):
+    """
+    Creates a temporary directory with:
+    1. Identical pair (pair1) + ground truth
+    2. Rotated and shifted pair (pair2) + ground truth
+    3. Unrelated noise pair (pair3)
+    4. Manifest CSV referencing all three pairs
+    """
+    data_dir = tmp_path / "test_data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    # â”€â”€ Pair 1: Identical Images â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    p1_ref = create_synthetic_terrain(350, 350, seed=101)
+    p1_src = p1_ref.copy()
+    p1_ref_path = data_dir / "p1_ref.png"
+    p1_src_path = data_dir / "p1_src.png"
+    p1_gt_path = data_dir / "p1_gt.json"
+    cv2.imwrite(str(p1_ref_path), p1_ref)
+    cv2.imwrite(str(p1_src_path), p1_src)
+
+    p1_gt = [
+        {"src": [50.0, 50.0], "ref": [50.0, 50.0]},
+        {"src": [180.0, 150.0], "ref": [180.0, 150.0]},
+        {"src": [250.0, 200.0], "ref": [250.0, 200.0]},
+        {"src": [100.0, 250.0], "ref": [100.0, 250.0]},
+    ]
+    with open(p1_gt_path, "w", encoding="utf-8") as f:
+        json.dump(p1_gt, f)
+
+    # â”€â”€ Pair 2: Rotated + Shifted + Scaled Images â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    p2_ref = create_synthetic_terrain(350, 350, seed=102)
+    center = (175.0, 175.0)
+    angle_deg = 3.0
+    scale = 1.02
+    tx, ty = 4.0, -3.0
+    M = cv2.getRotationMatrix2D(center, angle_deg, scale)
+    M[0, 2] += tx
+    M[1, 2] += ty
+
+    p2_src = cv2.warpAffine(p2_ref, M, (350, 350), borderMode=cv2.BORDER_REFLECT)
+    p2_ref_path = data_dir / "p2_ref.png"
+    p2_src_path = data_dir / "p2_src.png"
+    p2_gt_path = data_dir / "p2_gt.json"
+    cv2.imwrite(str(p2_ref_path), p2_ref)
+    cv2.imwrite(str(p2_src_path), p2_src)
+
+    # Compute ground truth by applying the transformation matrix M
+    ref_points = [
+        [100.0, 100.0],
+        [180.0, 150.0],
+        [250.0, 200.0],
+        [150.0, 260.0],
+    ]
+    p2_gt = []
+    for rx, ry in ref_points:
+        pt_homog = np.array([rx, ry, 1.0], dtype=np.float64)
+        src_pt = M @ pt_homog
+        p2_gt.append({
+            "src": [round(float(src_pt[0]), 2), round(float(src_pt[1]), 2)],
+            "ref": [rx, ry]
+        })
+
+    with open(p2_gt_path, "w", encoding="utf-8") as f:
+        json.dump(p2_gt, f)
+
+    # â”€â”€ Pair 3: Unrelated Images â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    p3_ref = create_synthetic_terrain(350, 350, seed=103)
+    rng_unrel = np.random.RandomState(888)
+    p3_src = rng_unrel.randint(0, 255, (350, 350, 3), dtype=np.uint8)
+    p3_ref_path = data_dir / "p3_ref.png"
+    p3_src_path = data_dir / "p3_src.png"
+    cv2.imwrite(str(p3_ref_path), p3_ref)
+    cv2.imwrite(str(p3_src_path), p3_src)
+
+    # â”€â”€ Manifest CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    manifest_path = data_dir / "manifest.csv"
+    with open(manifest_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["pair_id", "source_path", "reference_path", "ground_truth_path"])
+        writer.writerow(["pair_01_identical", p1_src_path.name, p1_ref_path.name, p1_gt_path.name])
+        writer.writerow(["pair_02_transformed", p2_src_path.name, p2_ref_path.name, p2_gt_path.name])
+        writer.writerow(["pair_03_unrelated", p3_src_path.name, p3_ref_path.name, ""])
+
+    return {
+        "manifest_path": manifest_path,
+        "data_dir": data_dir,
+    }
+
+
+def test_01_synthetic_pairs_benchmark(synthetic_benchmark_dataset, tmp_path: Path):
+    """
+    Tests benchmark on 3 tiny synthetic pairs:
+    1. identical -> success
+    2. rotated + scaled -> success
+    3. unrelated -> no_match
+    """
+    manifest_path = synthetic_benchmark_dataset["manifest_path"]
+    out_dir = tmp_path / "results_run1"
+
+    service = BenchmarkService(seed=config.DEFAULT_RANDOM_SEED)
+    summary = service.run_benchmark(
+        manifest_path=manifest_path,
+        output_dir=out_dir,
+        strategy="standard"
+    )
+
+    # Verify output artifacts
+    assert (out_dir / "results.csv").exists()
+    assert (out_dir / "summary.json").exists()
+    assert (out_dir / "summary.md").exists()
+
+    # Read results CSV
+    with open(out_dir / "results.csv", "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = {r["pair_id"]: r for r in reader}
+
+    assert len(rows) == 3
+
+    # Pair 1: Identical images -> success
+    p1 = rows["pair_01_identical"]
+    assert p1["verdict"] == "match"
+    assert p1["success"] == "True"
+    assert float(p1["mean_error"]) < 1.0
+    assert float(p1["confidence_percentage"]) >= 50.0
+
+    # Pair 2: Rotated + scaled -> success
+    p2 = rows["pair_02_transformed"]
+    assert p2["verdict"] == "match"
+    assert p2["success"] == "True"
+    assert float(p2["mean_error"]) < config.BENCHMARK_SUCCESS_ERROR_THRESH
+    assert int(p2["inliers"]) >= config.HOMOGRAPHY_MIN_INLIERS
+
+    # Pair 3: Unrelated -> no_match
+    p3 = rows["pair_03_unrelated"]
+    assert p3["verdict"] == "no_match"
+    assert p3["success"] == "False"
+
+    # Overall Summary Checks
+    assert summary["total_pairs"] == 3
+    assert summary["successful_pairs"] == 2
+    assert summary["failed_pairs"] == 1
+    assert summary["success_rate"] == round(2 / 3, 4)
+    assert summary["strategy"] == "standard"
+    assert summary["mean_ground_truth_error"] is not None
+
+
+def test_02_reproducibility(synthetic_benchmark_dataset, tmp_path: Path):
+    """
+    Verifies reproducibility:
+    Runs the benchmark twice with the same seed and confirms identical numerical results.
+    """
+    manifest_path = synthetic_benchmark_dataset["manifest_path"]
+    out_dir1 = tmp_path / "repro_run_1"
+    out_dir2 = tmp_path / "repro_run_2"
+
+    service1 = BenchmarkService(seed=42)
+    summary1 = service1.run_benchmark(manifest_path=manifest_path, output_dir=out_dir1, strategy="standard")
+
+    service2 = BenchmarkService(seed=42)
+    summary2 = service2.run_benchmark(manifest_path=manifest_path, output_dir=out_dir2, strategy="standard")
+
+    # Read both results.csv
+    with open(out_dir1 / "results.csv", "r", encoding="utf-8") as f1, open(out_dir2 / "results.csv", "r", encoding="utf-8") as f2:
+        rows1 = list(csv.DictReader(f1))
+        rows2 = list(csv.DictReader(f2))
+
+    assert len(rows1) == len(rows2)
+
+    # Compare all numerical and categorical metrics for each row
+    deterministic_keys = [
+        "pair_id", "verdict", "success", "source_keypoints", "reference_keypoints",
+        "good_matches", "inliers", "inlier_ratio", "mean_reprojection_error",
+        "confidence", "confidence_percentage", "mean_error", "median_error"
+    ]
+    for r1, r2 in zip(rows1, rows2):
+        for k in deterministic_keys:
+            assert r1[k] == r2[k], f"Reproducibility mismatch on key '{k}' for pair {r1['pair_id']}: {r1[k]} != {r2[k]}"
+
+    # Compare summary statistics
+    assert summary1["total_pairs"] == summary2["total_pairs"]
+    assert summary1["successful_pairs"] == summary2["successful_pairs"]
+    assert summary1["success_rate"] == summary2["success_rate"]
+    assert summary1["mean_ground_truth_error"] == summary2["mean_ground_truth_error"]
+    assert summary1["median_ground_truth_error"] == summary2["median_ground_truth_error"]
+
+
+def test_03_error_tolerance_bad_pair(synthetic_benchmark_dataset, tmp_path: Path):
+    """
+    Verifies that one bad pair never aborts the complete benchmark.
+    The benchmark catches the error, records it in that row, and continues.
+    """
+    data_dir = synthetic_benchmark_dataset["data_dir"]
+    manifest_with_bad = data_dir / "manifest_with_bad.csv"
+
+    with open(synthetic_benchmark_dataset["manifest_path"], "r", encoding="utf-8") as f:
+        existing_rows = list(csv.reader(f))
+
+    # Add a corrupted / non-existent pair entry in the middle
+    new_rows = existing_rows + [["pair_corrupt", "nonexistent_source.png", "nonexistent_ref.png", ""]]
+
+    with open(manifest_with_bad, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerows(new_rows)
+
+    out_dir = tmp_path / "bad_pair_results"
+    service = BenchmarkService(seed=42)
+    summary = service.run_benchmark(manifest_path=manifest_with_bad, output_dir=out_dir, strategy="standard")
+
+    # Verify all 4 pairs were processed without aborting
+    assert summary["total_pairs"] == 4
+    assert summary["successful_pairs"] == 2
+    assert summary["failed_pairs"] == 2
+
+    with open(out_dir / "results.csv", "r", encoding="utf-8") as f:
+        rows = {r["pair_id"]: r for r in csv.DictReader(f)}
+
+    assert "pair_corrupt" in rows
+    assert rows["pair_corrupt"]["verdict"] == "error"
+    assert "not found" in rows["pair_corrupt"]["error_message"].lower()
+
+
+def test_04_unimplemented_strategies_rejection(synthetic_benchmark_dataset, tmp_path: Path):
+    """
+    Verifies that requesting normalized, crater, or auto strategies raises NotImplementedError
+    in Phase 1 without pretending they are implemented.
+    """
+    manifest_path = synthetic_benchmark_dataset["manifest_path"]
+    service = BenchmarkService()
+
+    for unsupported in ["normalized", "crater", "auto"]:
+        with pytest.raises(NotImplementedError) as exc_info:
+            service.run_benchmark(manifest_path=manifest_path, output_dir=tmp_path / "unsupported", strategy=unsupported)
+        assert "not yet implemented" in str(exc_info.value)
+
+
+def test_05_api_benchmark_summary_endpoint(synthetic_benchmark_dataset, tmp_path: Path, monkeypatch):
+    """
+    Verifies GET /api/benchmark/summary endpoint returns the latest summary.json.
+    """
+    manifest_path = synthetic_benchmark_dataset["manifest_path"]
+    out_dir = tmp_path / "api_test_results"
+    service = BenchmarkService(seed=42)
+    service.run_benchmark(manifest_path=manifest_path, output_dir=out_dir)
+
+    # Point config.DEFAULT_RESULTS_DIR to our test output directory
+    monkeypatch.setattr(config, "DEFAULT_RESULTS_DIR", out_dir)
+
+    client = TestClient(app)
+    response = client.get("/api/benchmark/summary")
+    assert response.status_code == 200, f"Endpoint failed: {response.text}"
+    body = response.json()
+
+    assert body["total_pairs"] == 3
+    assert body["successful_pairs"] == 2
+    assert body["strategy"] == "standard"
+    assert "sun_angle_gap_buckets" in body
+    assert "scale_ratio_buckets" in body
+"""
+Sun-Angle Robustness & Illumination Analysis Service for LunarVision
+Extracts solar angles / incidence angles from image metadata or permits manual specification,
+analyzes image correspondence under varying illumination conditions,
+and runs batch testing across 15-20 image pairs with real computer vision measurements.
+"""
+
+import re
+import math
+import logging
+from typing import Dict, Any, Optional, List, Tuple
+import cv2
+import numpy as np
+from PIL import Image, ExifTags
+
+from .preprocessing import PreprocessingService
+from .feature_detection import FeatureDetectionService
+from .matching import FeatureMatchingService
+from .registration import ImageRegistrationService
+from .metrics import MetricsService
+
+logger = logging.getLogger(__name__)
+
+
+class SunAngleService:
+    """
+    Evaluates algorithmic resilience to lunar solar illumination variations and shadows.
+    """
+
+    def __init__(
+        self,
+        preprocess_svc: Optional[PreprocessingService] = None,
+        feature_svc: Optional[FeatureDetectionService] = None,
+        matching_svc: Optional[FeatureMatchingService] = None,
+        registration_svc: Optional[ImageRegistrationService] = None,
+        metrics_svc: Optional[MetricsService] = None
+    ):
+        self.preprocess_svc = preprocess_svc or PreprocessingService()
+        self.feature_svc = feature_svc or FeatureDetectionService()
+        self.matching_svc = matching_svc or FeatureMatchingService()
+        self.registration_svc = registration_svc or ImageRegistrationService()
+        self.metrics_svc = metrics_svc or MetricsService()
+
+    def extract_solar_metadata(self, file_bytes: bytes, filename: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Attempts to read solar angle / illumination metadata from:
+        1. Planetary PDS3/PDS4/VICAR labels (INCIDENCE_ANGLE, SUN_ELEVATION, SOLAR_AZIMUTH, etc.)
+        2. GeoTIFF / EXIF metadata tags
+        Returns extracted angles and whether metadata was automatically found.
+        """
+        metadata = {
+            "has_metadata": False,
+            "source": "manual_or_unavailable",
+            "incidence_angle": None,
+            "sun_elevation": None,
+            "sun_azimuth": None,
+            "emission_angle": None,
+            "phase_angle": None,
+        }
+
+        if not file_bytes:
+            return metadata
+
+        # 1. Check PDS3/PDS4 label headers (first 64KB)
+        try:
+            header_chunk = file_bytes[:65536].decode("latin-1", errors="ignore")
+            
+            inc_match = re.search(r'\b(?:INCIDENCE_ANGLE|SOLAR_INCIDENCE_ANGLE)\s*=\s*([0-9.]+)', header_chunk, re.IGNORECASE)
+            if inc_match:
+                metadata["incidence_angle"] = float(inc_match.group(1))
+                metadata["has_metadata"] = True
+                metadata["source"] = "PDS_LABEL"
+
+            sun_el_match = re.search(r'\b(?:SUN_ELEVATION|SOLAR_ELEVATION|SOLAR_ALTITUDE)\s*=\s*([0-9.]+)', header_chunk, re.IGNORECASE)
+            if sun_el_match:
+                metadata["sun_elevation"] = float(sun_el_match.group(1))
+                metadata["has_metadata"] = True
+                metadata["source"] = "PDS_LABEL"
+
+            sun_az_match = re.search(r'\b(?:SUN_AZIMUTH|SOLAR_AZIMUTH)\s*=\s*([0-9.]+)', header_chunk, re.IGNORECASE)
+            if sun_az_match:
+                metadata["sun_azimuth"] = float(sun_az_match.group(1))
+                metadata["has_metadata"] = True
+
+            em_match = re.search(r'\b(?:EMISSION_ANGLE)\s*=\s*([0-9.]+)', header_chunk, re.IGNORECASE)
+            if em_match:
+                metadata["emission_angle"] = float(em_match.group(1))
+
+            phase_match = re.search(r'\b(?:PHASE_ANGLE)\s*=\s*([0-9.]+)', header_chunk, re.IGNORECASE)
+            if phase_match:
+                metadata["phase_angle"] = float(phase_match.group(1))
+        except Exception as e:
+            logger.debug(f"PDS metadata extraction exception: {e}")
+
+        # 2. Check EXIF / TIFF tags if not found in PDS
+        if not metadata["has_metadata"]:
+            try:
+                import io
+                with Image.open(io.BytesIO(file_bytes)) as pil_img:
+                    exif = pil_img.getexif()
+                    if exif:
+                        for tag_id, value in exif.items():
+                            tag_name = ExifTags.TAGS.get(tag_id, str(tag_id)).lower()
+                            if "solar" in tag_name or "sun" in tag_name or "angle" in tag_name:
+                                metadata["has_metadata"] = True
+                                metadata["source"] = f"EXIF_{tag_name}"
+            except Exception:
+                pass
+
+        return metadata
+
+    def calculate_sun_angle_difference(
+        self,
+        src_meta: Dict[str, Any],
+        ref_meta: Dict[str, Any],
+        manual_angle_diff: Optional[float] = None
+    ) -> Tuple[float, str, bool]:
+        """
+        Determines the effective sun-angle difference in degrees.
+        Returns:
+            (angle_diff_degrees, metadata_status_label, is_manual)
+        """
+        if manual_angle_diff is not None:
+            return (abs(float(manual_angle_diff)), "User Specified (Manual Entry)", True)
+
+        # Check if both have incidence_angle
+        if src_meta.get("incidence_angle") is not None and ref_meta.get("incidence_angle") is not None:
+            diff = abs(src_meta["incidence_angle"] - ref_meta["incidence_angle"])
+            return (round(diff, 2), "Extracted from PDS/Image Metadata (Incidence Angle Difference)", False)
+
+        # Check sun_elevation
+        if src_meta.get("sun_elevation") is not None and ref_meta.get("sun_elevation") is not None:
+            diff = abs(src_meta["sun_elevation"] - ref_meta["sun_elevation"])
+            return (round(diff, 2), "Extracted from PDS/Image Metadata (Sun Elevation Difference)", False)
+
+        # Default fallback when metadata unavailable and manual not specified
+        return (0.0, "Metadata Unavailable (Defaulting to 0.0 deg; Enter manually above)", True)
+
+    def analyze_pair_robustness(
+        self,
+        src_bytes: bytes,
+        ref_bytes: bytes,
+        preferred_detector: str = "SIFT",
+        manual_angle_diff: Optional[float] = None,
+        src_filename: Optional[str] = None,
+        ref_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes registration pipeline between source and reference lunar images,
+        measures real keypoints, good matches, inliers, inlier ratio, RMSE, confidence,
+        and correlates with actual/input sun-angle difference.
+        """
+        # 1. Metadata check
+        src_meta = self.extract_solar_metadata(src_bytes, filename=src_filename)
+        ref_meta = self.extract_solar_metadata(ref_bytes, filename=ref_filename)
+        angle_diff, angle_label, is_manual = self.calculate_sun_angle_difference(
+            src_meta, ref_meta, manual_angle_diff=manual_angle_diff
+        )
+
+        # 2. Preprocessing
+        src_prep = self.preprocess_svc.preprocess_pipeline(
+            self.preprocess_svc.load_image_from_bytes(src_bytes, filename=src_filename)
+        )
+        ref_prep = self.preprocess_svc.preprocess_pipeline(
+            self.preprocess_svc.load_image_from_bytes(ref_bytes, filename=ref_filename)
+        )
+
+        # 3. Feature Detection
+        src_kps, src_descs, src_algo = self.feature_svc.detect_features(
+            src_prep["enhanced"], preferred_algorithm=preferred_detector
+        )
+        ref_kps, ref_descs, ref_algo = self.feature_svc.detect_features(
+            ref_prep["enhanced"], preferred_algorithm=preferred_detector
+        )
+
+        src_kp_count = len(src_kps)
+        ref_kp_count = len(ref_kps)
+
+        if src_kp_count < 6 or ref_kp_count < 6 or src_descs is None or ref_descs is None:
+            return {
+                "status": "rejected",
+                "decision": "Rejected",
+                "sun_angle_difference": angle_diff,
+                "metadata_label": angle_label,
+                "is_manual_angle": is_manual,
+                "detector_used": preferred_detector,
+                "source_keypoints": src_kp_count,
+                "reference_keypoints": ref_kp_count,
+                "good_matches": 0,
+                "inliers": 0,
+                "inlier_ratio": 0.0,
+                "rmse": 99.99,
+                "confidence_score": 0.0,
+                "confidence_percentage": 0.0,
+                "reason": f"Insufficient feature keypoints detected (Source: {src_kp_count}, Ref: {ref_kp_count})."
+            }
+
+        # 4. Feature Matching
+        algo_for_matching = src_algo if src_algo == ref_algo else "SIFT"
+        good_matches, total_raw = self.matching_svc.match_descriptors(
+            src_descs, ref_descs, algorithm=algo_for_matching
+        )
+
+        if len(good_matches) < 6:
+            return {
+                "status": "rejected",
+                "decision": "Rejected",
+                "sun_angle_difference": angle_diff,
+                "metadata_label": angle_label,
+                "is_manual_angle": is_manual,
+                "detector_used": algo_for_matching,
+                "source_keypoints": src_kp_count,
+                "reference_keypoints": ref_kp_count,
+                "good_matches": len(good_matches),
+                "inliers": 0,
+                "inlier_ratio": 0.0,
+                "rmse": 99.99,
+                "confidence_score": 0.0,
+                "confidence_percentage": 0.0,
+                "reason": f"Too few reliable correspondences found ({len(good_matches)} good matches)."
+            }
+
+        # 5. RANSAC Geometric Alignment
+        reg_result = self.registration_svc.align_images(
+            source_img=src_prep["original_color"],
+            reference_img=ref_prep["original_color"],
+            src_keypoints=src_kps,
+            ref_keypoints=ref_kps,
+            matches=good_matches
+        )
+
+        if not reg_result["success"]:
+            return {
+                "status": "rejected",
+                "decision": "Rejected",
+                "sun_angle_difference": angle_diff,
+                "metadata_label": angle_label,
+                "is_manual_angle": is_manual,
+                "detector_used": algo_for_matching,
+                "source_keypoints": src_kp_count,
+                "reference_keypoints": ref_kp_count,
+                "good_matches": len(good_matches),
+                "inliers": reg_result.get("inlier_count", 0),
+                "inlier_ratio": round(float(reg_result.get("inlier_count", 0) / max(len(good_matches), 1)), 4),
+                "rmse": 99.99,
+                "confidence_score": 0.0,
+                "confidence_percentage": 0.0,
+                "reason": f"RANSAC alignment rejected: {reg_result.get('error_message')}"
+            }
+
+        # 6. Real Quality Metrics calculation
+        metrics = self.metrics_svc.calculate_registration_metrics(
+            reference_img=ref_prep["gray"],
+            aligned_img=reg_result["aligned_image"],
+            inlier_count=reg_result["inlier_count"],
+            total_good_matches=len(good_matches),
+            valid_overlap_mask=reg_result["valid_overlap_mask"]
+        )
+
+        confidence = metrics["registration_confidence_score"]
+        decision = "Accepted" if confidence >= 0.20 else "Rejected"
+
+        return {
+            "status": "success" if decision == "Accepted" else "rejected",
+            "decision": decision,
+            "sun_angle_difference": angle_diff,
+            "metadata_label": angle_label,
+            "is_manual_angle": is_manual,
+            "detector_used": algo_for_matching,
+            "source_keypoints": src_kp_count,
+            "reference_keypoints": ref_kp_count,
+            "good_matches": len(good_matches),
+            "inliers": reg_result["inlier_count"],
+            "inlier_ratio": metrics["inlier_ratio"],
+            "rmse": metrics["rmse"],
+            "confidence_score": metrics["registration_confidence_score"],
+            "confidence_percentage": metrics["registration_confidence_percentage"],
+            "ssim": metrics.get("ssim", 0.0),
+            "source_metadata": src_meta,
+            "reference_metadata": ref_meta
+        }
+
+    def simulate_lunar_illumination(self, base_bgr: np.ndarray, sun_angle_deg: float) -> np.ndarray:
+        """
+        Physically models lunar surface illumination variation for a given solar incidence/zenith angle difference:
+        - Directional crater shading via 2D spatial gradients
+        - Grazing angle photometric attenuation (Lambertian/Lommel-Seeliger model)
+        - Dynamic shadow cast elongations on topography
+        """
+        gray = cv2.cvtColor(base_bgr, cv2.COLOR_BGR2GRAY) if len(base_bgr.shape) == 3 else base_bgr.copy()
+        rad = np.radians(sun_angle_deg)
+        dx = np.cos(rad)
+        dy = np.sin(rad)
+
+        # Grazing solar vector gradient
+        grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        shading = (grad_x * dx + grad_y * dy) * (0.30 + min(0.40, (sun_angle_deg / 90.0) * 0.40))
+
+        # Solar elevation attenuation
+        cos_factor = max(0.20, math.cos(math.radians(min(85.0, sun_angle_deg * 0.65))))
+        altered = gray.astype(np.float32) * cos_factor + shading
+
+        # Clip and convert back to 3-channel BGR
+        altered = np.clip(altered, 0, 255).astype(np.uint8)
+        return cv2.cvtColor(altered, cv2.COLOR_GRAY2BGR)
+
+    def run_batch_sun_angle_benchmark(
+        self,
+        base_image_bytes: Optional[bytes] = None,
+        num_pairs: int = 18,
+        preferred_detector: str = "SIFT"
+    ) -> List[Dict[str, Any]]:
+        """
+        Executes real batch testing for 15-20 image pairs across a wide spectrum of sun-angle differences (0 deg to 85 deg).
+        Every single pair runs the real feature extraction, matching, RANSAC alignment, and metrics calculation.
+        """
+        # Ensure count is between 15 and 20
+        count = max(15, min(20, num_pairs))
+
+        # Load baseline image
+        if base_image_bytes:
+            base_img = self.preprocess_svc.load_image_from_bytes(base_image_bytes)
+        else:
+            # Fallback to standard sample baseline
+            from pathlib import Path
+            sample_path = Path(__file__).resolve().parent.parent / "sample_data" / "01_baseline_pre_event.png"
+            if sample_path.exists():
+                base_img = self.preprocess_svc.load_image_from_path(str(sample_path))
+            else:
+                base_img = np.full((350, 350, 3), 120, dtype=np.uint8)
+
+        base_gray = cv2.cvtColor(base_img, cv2.COLOR_BGR2GRAY)
+        base_prep = self.preprocess_svc.preprocess_pipeline(base_img)
+        ref_kps, ref_descs, ref_algo = self.feature_svc.detect_features(base_prep["enhanced"], preferred_algorithm=preferred_detector)
+
+        # Distribute angle differences uniformly from 0 to 85 degrees across the requested number of pairs
+        angles = np.linspace(0.0, 85.0, count).round(1).tolist()
+
+        batch_results = []
+        for idx, angle in enumerate(angles, start=1):
+            pair_img = self.simulate_lunar_illumination(base_img, angle)
+            pair_prep = self.preprocess_svc.preprocess_pipeline(pair_img)
+
+            src_kps, src_descs, src_algo = self.feature_svc.detect_features(pair_prep["enhanced"], preferred_algorithm=preferred_detector)
+            src_kp_count = len(src_kps)
+            ref_kp_count = len(ref_kps)
+
+            if src_kp_count < 4 or ref_kp_count < 4 or src_descs is None or ref_descs is None:
+                batch_results.append({
+                    "pair_id": idx,
+                    "sun_angle_difference": angle,
+                    "source_keypoints": src_kp_count,
+                    "reference_keypoints": ref_kp_count,
+                    "good_matches": 0,
+                    "inliers": 0,
+                    "inlier_ratio": 0.0,
+                    "rmse": 99.99,
+                    "confidence_score": 0.0,
+                    "confidence_percentage": 0.0,
+                    "decision": "Rejected",
+                    "status": "rejected"
+                })
+                continue
+
+            good_matches, total_raw = self.matching_svc.match_descriptors(src_descs, ref_descs, algorithm=src_algo)
+
+            if len(good_matches) < 4:
+                batch_results.append({
+                    "pair_id": idx,
+                    "sun_angle_difference": angle,
+                    "source_keypoints": src_kp_count,
+                    "reference_keypoints": ref_kp_count,
+                    "good_matches": len(good_matches),
+                    "inliers": 0,
+                    "inlier_ratio": 0.0,
+                    "rmse": 99.99,
+                    "confidence_score": 0.0,
+                    "confidence_percentage": 0.0,
+                    "decision": "Rejected",
+                    "status": "rejected"
+                })
+                continue
+
+            reg_result = self.registration_svc.align_images(
+                source_img=pair_prep["original_color"],
+                reference_img=base_prep["original_color"],
+                src_keypoints=src_kps,
+                ref_keypoints=ref_kps,
+                matches=good_matches
+            )
+
+            if not reg_result["success"]:
+                batch_results.append({
+                    "pair_id": idx,
+                    "sun_angle_difference": angle,
+                    "source_keypoints": src_kp_count,
+                    "reference_keypoints": ref_kp_count,
+                    "good_matches": len(good_matches),
+                    "inliers": reg_result.get("inlier_count", 0),
+                    "inlier_ratio": round(float(reg_result.get("inlier_count", 0) / max(len(good_matches), 1)), 4),
+                    "rmse": 99.99,
+                    "confidence_score": 0.0,
+                    "confidence_percentage": 0.0,
+                    "decision": "Rejected",
+                    "status": "rejected"
+                })
+                continue
+
+            metrics = self.metrics_svc.calculate_registration_metrics(
+                reference_img=base_gray,
+                aligned_img=reg_result["aligned_image"],
+                inlier_count=reg_result["inlier_count"],
+                total_good_matches=len(good_matches),
+                valid_overlap_mask=reg_result["valid_overlap_mask"]
+            )
+
+            conf = metrics["registration_confidence_score"]
+            decision = "Accepted" if conf >= 0.20 else "Rejected"
+
+            batch_results.append({
+                "pair_id": idx,
+                "sun_angle_difference": angle,
+                "source_keypoints": src_kp_count,
+                "reference_keypoints": ref_kp_count,
+                "good_matches": len(good_matches),
+                "inliers": reg_result["inlier_count"],
+                "inlier_ratio": metrics["inlier_ratio"],
+                "rmse": metrics["rmse"],
+                "confidence_score": conf,
+                "confidence_percentage": metrics["registration_confidence_percentage"],
+                "decision": decision,
+                "status": "success" if decision == "Accepted" else "rejected"
+            })
+
+        return batch_results
+"""
+Global Configuration and Tunable Parameters for LunarVision
+Central repository for all algorithmic, threshold, and operational constants.
+"""
+
+from pathlib import Path
+
+# Random Seed for Algorithmic Reproducibility
+DEFAULT_RANDOM_SEED: int = 42
+
+# Image Processing Limits
+MAX_IMAGE_DIMENSION: int = 4096
+CLAHE_CLIP_LIMIT: float = 2.0
+CLAHE_TILE_GRID_SIZE: tuple = (8, 8)
+
+# Feature Detection Parameters
+MIN_FEATURES_DEFAULT: int = 15
+MIN_FEATURES_ROUTE: int = 12
+MAX_AKAZE_FEATURES: int = 3000
+MIN_MATCHES_REQUIRED: int = 6
+
+# Feature Matching Parameters
+SIFT_RATIO_THRESH: float = 0.75
+AKAZE_RATIO_THRESH: float = 0.80
+
+# RANSAC and Homography Parameters
+RANSAC_REPROJ_THRESH: float = 3.5
+HOMOGRAPHY_MIN_INLIERS: int = 4
+HOMOGRAPHY_DET_MIN: float = 1e-4
+HOMOGRAPHY_DET_MAX: float = 1e4
+
+# Quality Metrics and Confidence Score Weights
+CONFIDENCE_THRESHOLD: float = 0.20
+CHANGE_DETECTION_CONFIDENCE_THRESHOLD: float = 0.35
+RMSE_NORM_MAX: float = 60.0
+INLIER_COUNT_SATURATION: float = 40.0
+MATCH_SCORE_WEIGHT: float = 0.40
+RATIO_SCORE_WEIGHT: float = 0.35
+RMSE_SCORE_WEIGHT: float = 0.25
+
+# Change Detection Parameters
+CHANGE_DIFF_THRESHOLD: int = 35
+CHANGE_MIN_REGION_AREA: int = 20
+
+# Benchmark Configuration (Phase 1)
+BENCHMARK_SUCCESS_ERROR_THRESH: float = 3.0  # px for ground truth error success
+BENCHMARK_SUN_ANGLE_BUCKETS: list = [10.0, 30.0, 60.0]
+BENCHMARK_SCALE_RATIO_BUCKETS: list = [2.0, 5.0, 20.0]
+DEFAULT_BENCHMARK_OUTPUT_DIR: str = "results"
+DEFAULT_BENCHMARK_STRATEGY: str = "standard"
+DEFAULT_BENCHMARK_NORM_MODE: str = "flatten"
+
+# Project Directories
+BASE_DIR: Path = Path(__file__).resolve().parent
+PROJECT_ROOT: Path = BASE_DIR.parent
+OUTPUTS_DIR: Path = BASE_DIR / "outputs"
+UPLOADS_DIR: Path = BASE_DIR / "uploads"
+DEFAULT_RESULTS_DIR: Path = PROJECT_ROOT / DEFAULT_BENCHMARK_OUTPUT_DIR
+import os
+import sys
+from pathlib import Path
+import cv2
+import numpy as np
+import skimage
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from backend.routers.image_routes import router as image_router
+from backend.routers.benchmark_routes import router as benchmark_router
+
+
+# Initialize application directories
+BASE_DIR = Path(__file__).resolve().parent
+UPLOADS_DIR = BASE_DIR / "uploads"
+OUTPUTS_DIR = BASE_DIR / "outputs"
+
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+app = FastAPI(
+    title="LunarVision API",
+    description="Backend API for Lunar Image Correspondence and Temporal Change Detection",
+    version="1.0.0"
+)
+
+# Dynamic CORS Configuration for Production and Localhost
+default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:5176",
+    "http://127.0.0.1:5176",
+    "http://localhost:5177",
+    "http://127.0.0.1:5177",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Read optional comma-separated ALLOWED_ORIGINS from environment variable (e.g. from Render dashboard)
+env_origins_str = os.getenv("ALLOWED_ORIGINS", "")
+if env_origins_str:
+    env_origins = [origin.strip() for origin in env_origins_str.split(",") if origin.strip()]
+    origins = list(set(default_origins + env_origins))
+else:
+    origins = default_origins
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Automatically permit all Vercel deployment domains and preview branches
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static directories for file access
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
+
+# Include Routers
+app.include_router(image_router, prefix="/api/images", tags=["Images"])
+app.include_router(benchmark_router, prefix="/api/benchmark", tags=["Benchmark"])
+# app.include_router(chat_router, prefix="/api/chat", tags=["Chatbot"])
+
+
+
+@app.get("/")
+async def root():
+    return {
+        "app": "LunarVision API",
+        "status": "online",
+        "environment": os.getenv("RENDER_SERVICE_NAME", "local_development"),
+        "version": "1.0.0",
+        "docs_url": "/docs"
+    }
+
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "LunarVision Backend",
+        "environment": os.getenv("RENDER_SERVICE_NAME", "local_development"),
+        "python_version": sys.version,
+        "opencv_version": cv2.__version__,
+        "numpy_version": np.__version__,
+        "skimage_version": skimage.__version__,
+        "cors_configured": True,
+        "directories": {
+            "uploads": UPLOADS_DIR.exists(),
+            "outputs": OUTPUTS_DIR.exists()
+        }
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=False)
+import React from 'react';
+import { PipelineProvider, usePipeline } from './context/PipelineContext';
+import Sidebar from './components/Sidebar';
+import Header from './components/Header';
+import Dashboard from './pages/Dashboard';
+import RegistrationPage from './pages/RegistrationPage';
+import ThreeSensorPage from './pages/ThreeSensorPage';
+import ChangeDetectionPage from './pages/ChangeDetectionPage';
+import ResultsPage from './pages/ResultsPage';
+import HowItWorksPage from './pages/HowItWorksPage';
+import SunAnglePage from './pages/SunAnglePage';
+
+
+function MainAppLayout() {
+  const { activeTab } = usePipeline();
+
+  const renderActivePage = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'registration':
+        return <RegistrationPage />;
+      case 'three_sensor':
+        return <ThreeSensorPage />;
+      case 'change_detection':
+        return <ChangeDetectionPage />;
+      case 'results':
+        return <ResultsPage />;
+      case 'how_it_works':
+        return <HowItWorksPage />;
+      case 'sun_angle': return <SunAnglePage />;
+      default:
+        return <Dashboard />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen space-bg text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+      {/* Top Navigation Header */}
+      <Header />
+
+      {/* Main Workspace Body */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar Navigation - Only show when not on dashboard for a cleaner landing page, or keep it if required. Since reference has no sidebar, we hide it on dashboard. */}
+        {/* Sidebar hidden */}
+
+        {/* Dynamic Page Content */}
+        <main className={`flex-1 overflow-y-auto ${activeTab === 'dashboard' ? 'dashboard-override' : 'p-4 sm:p-6 lg:p-8'}`}
+          style={activeTab !== 'dashboard' ? { background: 'linear-gradient(180deg, #010108 0%, #020a18 100%)' } : undefined}
+        >
+          <div className={activeTab === 'dashboard' ? 'w-full h-full' : 'max-w-7xl mx-auto'}>
+            {renderActivePage()}
+          </div>
+        </main>
+      </div>
+
+      {/* Telemetry Footer */}
+      <footer
+        className="py-2.5 px-8 flex flex-col sm:flex-row items-center justify-between text-[11px] z-40"
+        style={{
+          background: 'rgba(1, 3, 12, 0.90)',
+          borderTop: '1px solid rgba(0, 180, 255, 0.08)',
+          color: '#4a6a80',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span style={{ color: '#3a5a70' }}>LunarVision CV Engine</span>
+          <span style={{ color: '#2a3a45' }}>â€¢</span>
+          <span style={{ color: '#2a4055' }}>Planetary Surface Registration &amp; Temporal Change Detection</span>
+        </div>
+        <div className="mt-1 sm:mt-0 font-mono" style={{ color: '#00a8c8', opacity: 0.7 }}>
+          FastAPI + OpenCV + scikit-image + React 18
+        </div>
+      </footer>
+
+      {/* Offline-First AI Chatbot Widget */}
+      
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <PipelineProvider>
+      <MainAppLayout />
+    </PipelineProvider>
+  );
+}
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+
+// Register Service Worker for Offline PWA support
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('LunarVision SW registered:', reg.scope))
+      .catch(err => console.warn('SW registration failed:', err));
+  });
+}
+

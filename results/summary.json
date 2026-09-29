@@ -1,0 +1,76 @@
+{
+  "strategy": "standard",
+  "timestamp": "2026-09-24T05:01:59Z",
+  "total_pairs": 3,
+  "successful_pairs": 2,
+  "failed_pairs": 1,
+  "success_rate": 0.6667,
+  "mean_ground_truth_error": null,
+  "median_ground_truth_error": null,
+  "mean_runtime_ms": 268.62,
+  "median_runtime_ms": 248.12,
+  "sun_angle_gap_buckets": {
+    "<10": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "10-30": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "30-60": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    ">60": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "unknown": {
+      "count": 3,
+      "success_rate": 0.6667,
+      "mean_error": null,
+      "median_runtime": 248.12
+    }
+  },
+  "scale_ratio_buckets": {
+    "<2": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "2-5": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "5-20": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    ">20": {
+      "count": 0,
+      "success_rate": 0.0,
+      "mean_error": null,
+      "median_runtime": 0.0
+    },
+    "unknown": {
+      "count": 3,
+      "success_rate": 0.6667,
+      "mean_error": null,
+      "median_runtime": 248.12
+    }
+  }
+}

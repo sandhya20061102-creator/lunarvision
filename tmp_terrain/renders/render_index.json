@@ -1,0 +1,18 @@
+[
+  {
+    "filename": "elev070_az000_scale1.00.png",
+    "path": "C:\\Users\\SANDHYA\\OneDrive\\Documents\\lunarvision\\tmp_terrain\\renders\\elev070_az000_scale1.00.png",
+    "elevation_deg": 70.0,
+    "azimuth_deg": 0.0,
+    "scale_factor": 1.0,
+    "output_size": 512
+  },
+  {
+    "filename": "elev010_az000_scale1.00.png",
+    "path": "C:\\Users\\SANDHYA\\OneDrive\\Documents\\lunarvision\\tmp_terrain\\renders\\elev010_az000_scale1.00.png",
+    "elevation_deg": 10.0,
+    "azimuth_deg": 0.0,
+    "scale_factor": 1.0,
+    "output_size": 512
+  }
+]
